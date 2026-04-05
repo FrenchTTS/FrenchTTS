@@ -1,0 +1,6 @@
+.tmp_check/
+.claude/
+img/icon.psd
+build/
+dist/
+FrenchTTS.spec
