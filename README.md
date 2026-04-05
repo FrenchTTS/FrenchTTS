@@ -18,7 +18,7 @@
 
 ## Why FrenchTTS?
 
-Finding a good French TTS in 2024 is surprisingly painful.
+Finding a good French TTS in 2026 is surprisingly painful.
 
 Most free solutions sound robotic, rely on outdated speech engines, or require you to paste text into a web interface and manually download the output. Paid alternatives _(ElevenLabs, Azure, Google Cloud)_ do sound great — but they all require an API key, a credit card, and start billing once you exceed a free tier.
 
