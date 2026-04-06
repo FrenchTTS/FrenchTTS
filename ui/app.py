@@ -602,21 +602,21 @@ class FrenchTTSApp(ctk.CTk):
     # --- STT / Microphone ---------------------------------------------------
 
     def _on_mic_toggle(self) -> None:
-        """Toggle between recording and stop-to-transcribe.
+        """Démarre l'écoute VAD ou annule si déjà en cours.
 
-        Blocked while TTS is playing. The transcribing state disables the
-        button itself, so only idle→recording and recording→transcribing
-        transitions are reachable from the UI.
-        The selected input device is applied to the listener just before
-        start_recording() so a mid-session device change takes effect immediately.
+        Un seul clic suffit : la VAD détecte automatiquement la fin de parole.
+        Un second clic pendant l'écoute ou l'enregistrement annule sans transcrire.
+        Bloqué si le TTS est en cours de lecture ; le bouton est désactivé pendant
+        la transcription (état "transcribing").
         """
         if self._tts_thread and self._tts_thread.is_alive():
             return
         if self._stt_state == "idle":
             self._listener.device = self._input_device_map.get(self.stt_input_var.get())
-            self._listener.start_recording()
-        elif self._stt_state == "recording":
-            self._listener.stop_recording()
+            self._listener.start_listening()
+        elif self._stt_state in ("listening", "recording"):
+            self._listener.cancel()
+            self._restore_ui()   # restore speak/replay immédiatement (pas de TTS prévu)
 
     def _on_stt_toggle(self) -> None:
         """Show or hide the mic button when STT is enabled/disabled in settings.
@@ -636,15 +636,19 @@ class FrenchTTSApp(ctk.CTk):
         self.after(0, lambda s=new_state: self._apply_stt_state(s))
 
     def _apply_stt_state(self, state: str) -> None:
-        """Apply STT state to the UI — must run on the main thread.
+        """Applique l'état STT à l'interface — doit tourner sur le thread principal.
 
-        State machine for the mic button:
-          idle        → "🎙 Micro → TTS" (ghost style, normal)
-          recording   → "⏹ Arrêter" (dark green, normal) — disables speak/replay
-          transcribing → "🎙 Micro → TTS" (disabled) + plays recognizing.wav
+        Machine d'états du bouton micro :
+          idle         → "🎙 Micro → TTS" (style ghost, actif)
+          listening    → "👂 En écoute..." (vert foncé) — micro ouvert, attente parole
+          recording    → "🔊 Parole..." (rouge) + recognizing.wav — parole détectée
+          transcribing → "🎙 Micro → TTS" (désactivé) — Whisper en cours
 
-        speak_btn / replay_btn are restored separately by _restore_ui when
-        transcription ends (either via TTS completion or error/not-recognized).
+        speak_btn / replay_btn sont restaurés par _restore_ui(), appelé depuis :
+          - _on_mic_toggle (annulation)
+          - _on_stt_not_recognized / _on_stt_error (fin sans TTS)
+          - _run_worker.finally (fin du TTS)
+        Ils ne sont PAS restaurés ici pour éviter une race avec _apply_transcript.
         """
         self._stt_state = state
         if state == "idle":
@@ -654,23 +658,31 @@ class FrenchTTSApp(ctk.CTk):
                 fg_color=_BTN_SECONDARY["fg_color"],
                 hover_color=_BTN_SECONDARY["hover_color"],
             )
-        elif state == "recording":
+        elif state == "listening":
             self.mic_btn.configure(
-                text="⏹  Arrêter",
+                text="👂  En écoute...",
                 state="normal",
-                fg_color="#1a5c1a",
-                hover_color="#154a15",
+                fg_color="#145214",
+                hover_color="#0f3d0f",
             )
             self.speak_btn.configure(state="disabled")
             self.replay_btn.configure(state="disabled")
+            self._set_status("À l'écoute...")
+        elif state == "recording":
+            self.mic_btn.configure(
+                text="🔊  Parole...",
+                state="normal",
+                fg_color="#6e1212",
+                hover_color="#521010",
+            )
             self._set_status(STATUS_RECORDING)
+            play_sound(SND_RECOGNIZING)
         elif state == "transcribing":
             self.mic_btn.configure(
                 text="🎙  Micro → TTS",
                 state="disabled",
             )
             self._set_status(STATUS_TRANSCRIBING)
-            play_sound(SND_RECOGNIZING)
 
     def _on_stt_transcript(self, text: str) -> None:
         """Receive transcript from background thread — marshal to main thread."""
