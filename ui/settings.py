@@ -140,9 +140,35 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self._separator(row=10)
 
+        # --- STT (Micro → TTS) section --------------------------------------
+        # Row 11: enable/disable toggle
+        ctk.CTkLabel(self, text="Micro → TTS :").grid(row=11, column=0, **LBL)
+        stt_sw_frame = ctk.CTkFrame(self, fg_color="transparent")
+        stt_sw_frame.grid(row=11, column=1, columnspan=2, sticky="w", **CTL)
+        ctk.CTkSwitch(
+            stt_sw_frame, text="Activé",
+            variable=self._app.stt_enabled_var,
+            command=self._app._on_stt_toggle,
+            onvalue=True, offvalue=False,
+        ).grid(row=0, column=0, sticky="w")
+
+        # Row 12: input device selector — mirrors the output device row above.
+        # ↺ re-queries sounddevice in case a USB mic was plugged in after launch.
+        ctk.CTkLabel(self, text="Microphone :").grid(row=12, column=0, **LBL)
+        self.stt_input_menu = ctk.CTkOptionMenu(
+            self, variable=self._app.stt_input_var, values=[])
+        self.stt_input_menu.grid(row=12, column=1, sticky="ew", padx=(0, 4), pady=7)
+        ctk.CTkButton(self, text="↺", width=32,
+                      command=lambda: self._app._populate_input_devices(
+                          widget=self.stt_input_menu)
+                      ).grid(row=12, column=2, padx=(0, 16), pady=7)
+        self._app._populate_input_devices(widget=self.stt_input_menu)
+
+        self._separator(row=13)
+
         # --- Footer buttons -------------------------------------------------
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.grid(row=11, column=0, columnspan=3, pady=(10, 14))
+        btn_frame.grid(row=14, column=0, columnspan=3, pady=(10, 14))
         ctk.CTkButton(btn_frame, text="Dossier config", width=140,
                       **_BTN_SECONDARY,
                       command=lambda: _safe_open(BASE_DIR)

@@ -26,6 +26,10 @@ from core.constants import (
     fmt_rate, fmt_pitch,
 )
 from core.audio import _decode_mp3
+from core.sounds import (
+    ensure_sounds, play_sound,
+    SND_RECOGNIZING, SND_RECOGNIZED, SND_NOT_RECOGNIZED,
+)
 from ui.utils import (
     _get_icon_path, make_tray_image,
     _set_window_icon, apply_window_transparency,
@@ -89,14 +93,17 @@ class FrenchTTSApp(ctk.CTk):
         # --- Tkinter vars shared with SettingsWindow ------------------------
         # These are declared here (not in _build_ui) so SettingsWindow can
         # bind to them before the UI is fully constructed.
-        self.voice_var      = ctk.StringVar(value=list(VOICES.keys())[0])
-        self.device_var     = ctk.StringVar()
-        self.rate_var       = ctk.IntVar(value=0)
-        self.volume_var     = ctk.IntVar(value=100)
-        self.pitch_var      = ctk.IntVar(value=0)
-        self.opacity_var    = ctk.DoubleVar(value=0.93)
-        self.replay_key_var = ctk.StringVar(value="F2")
-        self.stop_key_var   = ctk.StringVar(value="F3")
+        self.voice_var        = ctk.StringVar(value=list(VOICES.keys())[0])
+        self.device_var       = ctk.StringVar()
+        self.rate_var         = ctk.IntVar(value=0)
+        self.volume_var       = ctk.IntVar(value=100)
+        self.pitch_var        = ctk.IntVar(value=0)
+        self.opacity_var      = ctk.DoubleVar(value=0.93)
+        self.replay_key_var   = ctk.StringVar(value="F2")
+        self.stop_key_var     = ctk.StringVar(value="F3")
+        self.stt_enabled_var  = ctk.BooleanVar(value=True)
+        self.stt_input_var    = ctk.StringVar()
+        self._input_device_map: dict[str, int] = {}
 
         # --- Boot sequence --------------------------------------------------
         self._build_ui()
@@ -106,16 +113,20 @@ class FrenchTTSApp(ctk.CTk):
         self.resizable(False, False)
         _set_window_icon(self)
 
+        ensure_sounds()   # generate audio/*.wav if absent
+
         self._listener = STTListener(
             on_transcript=self._on_stt_transcript,
             on_state_change=self._on_stt_state_change,
             on_error=self._on_stt_error,
+            on_not_recognized=self._on_stt_not_recognized,
         )
         # Warm up the Whisper model in the background so the first dictation
         # doesn't stall. Runs silently; any failure is deferred to first use.
         threading.Thread(target=_get_model, daemon=True).start()
 
         self._populate_devices()
+        self._populate_input_devices()
         self._load_settings()        # overwrites defaults with saved prefs
         self._load_history()
         self._bind_replay_key()      # must run after _load_settings sets replay_key_var
@@ -206,9 +217,9 @@ class FrenchTTSApp(ctk.CTk):
             command=self._open_settings
         ).grid(row=1, column=1, sticky="ew", padx=(3, 0))
 
-        # Row 2: microphone dictation (full-width, ghost style)
+        # Row 2: microphone → STT → TTS pipeline button (full-width, ghost style)
         self.mic_btn = ctk.CTkButton(
-            btn_row, text="🎙  Dicter", height=33,
+            btn_row, text="🎙  Micro → TTS", height=33,
             font=ctk.CTkFont(size=13),
             **_BTN_SECONDARY,
             command=self._on_mic_toggle)
@@ -253,6 +264,32 @@ class FrenchTTSApp(ctk.CTk):
         link.bind("<Leave>",    lambda e: link.configure(text_color=("gray55", "gray40")))
 
     # --- Devices ------------------------------------------------------------
+
+    def _populate_input_devices(self, widget=None) -> None:
+        """Rebuild the audio input device list from sounddevice.
+
+        Only input-capable devices are included (max_input_channels > 0).
+        Falls back to the first available device if the saved selection is gone.
+        ``widget`` is the target CTkOptionMenu to update (settings window dropdown).
+        """
+        self._input_device_map.clear()
+        names = []
+        for idx, dev in enumerate(sd.query_devices()):
+            if dev["max_input_channels"] > 0:
+                name = f"{idx}: {dev['name']}"
+                self._input_device_map[name] = idx
+                names.append(name)
+
+        if self.stt_input_var.get() not in self._input_device_map:
+            if names:
+                self.stt_input_var.set(names[0])
+
+        target = widget or (
+            self._settings_win.stt_input_menu
+            if self._settings_win and self._settings_win.winfo_exists()
+               and hasattr(self._settings_win, "stt_input_menu") else None)
+        if target:
+            target.configure(values=names or ["Aucun microphone"])
 
     def _populate_devices(self, widget=None) -> None:
         """Rebuild the audio output device list from sounddevice.
@@ -321,6 +358,15 @@ class FrenchTTSApp(ctk.CTk):
         self.opacity_var.set(float(cfg.get("opacity", 0.93)))
         self.replay_key_var.set(str(cfg.get("replay_key", "F2")))
         self.stop_key_var.set(str(cfg.get("stop_key", "F3")))
+        self.stt_enabled_var.set(bool(cfg.get("stt_enabled", True)))
+        saved_in = cfg.get("stt_input_device", "")
+        if saved_in:
+            match = next((n for n in self._input_device_map if saved_in in n), None)
+            if match:
+                self.stt_input_var.set(match)
+        # Apply saved STT enabled state to the button
+        if not self.stt_enabled_var.get():
+            self.mic_btn.grid_remove()
 
     def _save_settings(self) -> None:
         """Persist current Tkinter var values to config.json.
@@ -331,14 +377,16 @@ class FrenchTTSApp(ctk.CTk):
         try:
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump({
-                    "voice":      self.voice_var.get(),
-                    "device":     self.device_var.get(),
-                    "rate":       self.rate_var.get(),
-                    "volume":     self.volume_var.get(),
-                    "pitch":      self.pitch_var.get(),
-                    "opacity":    round(self.opacity_var.get(), 2),
-                    "replay_key": self.replay_key_var.get(),
-                    "stop_key":   self.stop_key_var.get(),
+                    "voice":            self.voice_var.get(),
+                    "device":           self.device_var.get(),
+                    "rate":             self.rate_var.get(),
+                    "volume":           self.volume_var.get(),
+                    "pitch":            self.pitch_var.get(),
+                    "opacity":          round(self.opacity_var.get(), 2),
+                    "replay_key":       self.replay_key_var.get(),
+                    "stop_key":         self.stop_key_var.get(),
+                    "stt_enabled":      self.stt_enabled_var.get(),
+                    "stt_input_device": self.stt_input_var.get(),
                 }, f, indent=2, ensure_ascii=False)
         except OSError:
             pass
@@ -531,34 +579,57 @@ class FrenchTTSApp(ctk.CTk):
 
         Blocked while TTS is playing. The transcribing state disables the
         button itself, so only idle→recording and recording→transcribing
-        transitions are reachable here.
+        transitions are reachable from the UI.
+        The selected input device is applied to the listener just before
+        start_recording() so a mid-session device change takes effect immediately.
         """
         if self._tts_thread and self._tts_thread.is_alive():
             return
         if self._stt_state == "idle":
+            self._listener.device = self._input_device_map.get(self.stt_input_var.get())
             self._listener.start_recording()
         elif self._stt_state == "recording":
             self._listener.stop_recording()
 
+    def _on_stt_toggle(self) -> None:
+        """Show or hide the mic button when STT is enabled/disabled in settings.
+
+        When disabling, any active recording is cancelled immediately.
+        When enabling, the button is restored at its normal grid position.
+        """
+        if self.stt_enabled_var.get():
+            self.mic_btn.grid()
+        else:
+            if self._listener:
+                self._listener.cancel()
+            self.mic_btn.grid_remove()
+
     def _on_stt_state_change(self, new_state: str) -> None:
-        """Marshal STTListener state change to the main thread."""
+        """Marshal STTListener state change to the main thread via after(0)."""
         self.after(0, lambda s=new_state: self._apply_stt_state(s))
 
     def _apply_stt_state(self, state: str) -> None:
-        """Apply STT state to the UI — must run on the main thread."""
+        """Apply STT state to the UI — must run on the main thread.
+
+        State machine for the mic button:
+          idle        → "🎙 Micro → TTS" (ghost style, normal)
+          recording   → "⏹ Arrêter" (dark green, normal) — disables speak/replay
+          transcribing → "🎙 Micro → TTS" (disabled) + plays recognizing.wav
+
+        speak_btn / replay_btn are restored separately by _restore_ui when
+        transcription ends (either via TTS completion or error/not-recognized).
+        """
         self._stt_state = state
         if state == "idle":
             self.mic_btn.configure(
-                text="🎙  Dicter",
+                text="🎙  Micro → TTS",
                 state="normal",
                 fg_color=_BTN_SECONDARY["fg_color"],
                 hover_color=_BTN_SECONDARY["hover_color"],
             )
-            if not (self._tts_thread and self._tts_thread.is_alive()):
-                self._restore_ui()
         elif state == "recording":
             self.mic_btn.configure(
-                text="⏹  Stop",
+                text="⏹  Arrêter",
                 state="normal",
                 fg_color="#1a5c1a",
                 hover_color="#154a15",
@@ -567,21 +638,42 @@ class FrenchTTSApp(ctk.CTk):
             self.replay_btn.configure(state="disabled")
             self._set_status(STATUS_RECORDING)
         elif state == "transcribing":
-            self.mic_btn.configure(state="disabled")
+            self.mic_btn.configure(
+                text="🎙  Micro → TTS",
+                state="disabled",
+            )
             self._set_status(STATUS_TRANSCRIBING)
+            play_sound(SND_RECOGNIZING)
 
     def _on_stt_transcript(self, text: str) -> None:
         """Receive transcript from background thread — marshal to main thread."""
         self.after(0, lambda t=text: self._apply_transcript(t))
 
     def _apply_transcript(self, text: str) -> None:
-        """Insert transcript into textbox and trigger TTS — main thread only."""
+        """Play recognized sound, insert transcript, then launch TTS pipeline.
+
+        Runs on the main thread. TTS via _on_speak() starts immediately after
+        so the user hears both the confirmation sound and the speech output.
+        _restore_ui() is called by _run_worker's finally block when TTS ends.
+        """
+        play_sound(SND_RECOGNIZED)
         self._set_textbox(text)
         self._on_speak()
 
+    def _on_stt_not_recognized(self) -> None:
+        """Called when Whisper returns no usable text — marshal to main thread."""
+        def _ui():
+            play_sound(SND_NOT_RECOGNIZED)
+            self._set_status("STT: Aucun texte détecté.")
+            self._restore_ui()
+        self.after(0, _ui)
+
     def _on_stt_error(self, message: str) -> None:
-        """Show STT errors in the status bar — marshal to main thread."""
-        self.after(0, lambda m=message: self._set_status(f"STT: {m}"))
+        """Called on system-level STT failures (mic, model, crash) — marshal."""
+        def _ui():
+            self._set_status(f"STT: {message}")
+            self._restore_ui()
+        self.after(0, _ui)
 
     def _shutdown(self) -> None:
         """Save state and destroy the application.

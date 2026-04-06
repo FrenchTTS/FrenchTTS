@@ -77,9 +77,11 @@ DEFAULT_SETTINGS: dict = {
     "volume":     100,   # 0–100; converted to a signed edge-tts offset at runtime
     "pitch":      0,     # Hz offset, e.g. -10 = 10 Hz lower
     "opacity":    0.93,  # 1.0 = fully opaque (acrylic disabled)
-    "replay_key":    "F2",     # Tkinter keysym — also used as keyboard lib hotkey
-    "stop_key":      "F3",     # same format; triggers Arrêter globally
-    "stt_model_size": "small", # faster-whisper model size
+    "replay_key":      "F2",     # Tkinter keysym — also used as keyboard lib hotkey
+    "stop_key":        "F3",     # same format; triggers Arrêter globally
+    "stt_model_size":  "small",  # faster-whisper model size
+    "stt_enabled":     True,     # show/hide the Micro → TTS button
+    "stt_input_device": "",      # empty → system default microphone
 }
 
 # Ghost-style button appearance reused for secondary actions in both windows.
