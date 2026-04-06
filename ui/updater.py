@@ -52,11 +52,14 @@ def _apply_update(close_fn, new_exe: str) -> None:
     """
     current  = sys.executable
     bat_path = current + "_update.bat"
+    # Escape % signs in paths so cmd.exe does not treat them as variable references.
+    esc_current = current.replace("%", "%%")
+    esc_new_exe = new_exe.replace("%", "%%")
     bat_content = (
         "@echo off\n"
         "timeout /t 2 /nobreak >nul\n"
-        f'move /y "{new_exe}" "{current}"\n'
-        f'start "" "{current}"\n'
+        f'move /y "{esc_new_exe}" "{esc_current}"\n'
+        f'start "" "{esc_current}"\n'
         'del "%~f0"\n'
     )
     try:
@@ -266,13 +269,15 @@ class UpdaterSplash(ctk.CTk):
 
         try:
             tag = data["tag_name"].lstrip("v")
-        except (KeyError, AttributeError):
-            # Malformed API response — treat as up to date
+            # _version_tuple raises ValueError on non-numeric segments (e.g. "nightly")
+            remote = _version_tuple(tag)
+        except (KeyError, AttributeError, ValueError):
+            # Malformed or non-semver tag — treat as up to date
             self.after(0, lambda: self._status_lbl.configure(text="À jour."))
             self.after(600, self.destroy)
             return
 
-        if _version_tuple(tag) > _version_tuple(APP_VERSION):
+        if remote > _version_tuple(APP_VERSION):
             asset = next(
                 (a for a in data.get("assets", [])
                  if a["name"] == f"{APP_NAME}.exe"),
@@ -318,11 +323,19 @@ class UpdaterSplash(ctk.CTk):
                             pct = downloaded / total_size
                             self.after(0, lambda p=pct: self._set_progress(p))
         except OSError:
+            try:
+                os.remove(new_exe)
+            except OSError:
+                pass
             self.after(0, lambda: self._show_error(
                 "Téléchargement interrompu.\n"
                 "Vérifiez votre connexion internet."))
             return
         except Exception:
+            try:
+                os.remove(new_exe)
+            except OSError:
+                pass
             self.after(0, lambda: self._show_error(
                 "Erreur lors du téléchargement."))
             return

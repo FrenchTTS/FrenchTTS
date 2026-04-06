@@ -3,25 +3,25 @@ voice/listener.py — Microphone capture → VAD → faster-whisper STT pipeline
 
 Flow
 ----
-1. start_listening() ouvre le stream micro et démarre la détection vocale (VAD).
-2. Le callback PortAudio calcule l'énergie RMS de chaque bloc (~64 ms).
-   - Quand l'énergie dépasse SPEECH_THR pendant CONFIRM_FRAMES blocs consécutifs
-     → parole confirmée : on_state_change("recording") est appelé, recognizing.wav joue.
-   - Quand l'énergie repasse sous SPEECH_THR pendant SILENCE_FRAMES blocs
-     → fin d'énoncé détectée : _vad_done est signalé.
-3. _vad_watcher() (thread daemon) attend _vad_done, ferme le stream et lance
-   _transcribe_worker() dans un nouveau thread daemon.
-4. _transcribe_worker() appelle Whisper puis on_transcript ou on_not_recognized.
+1. start_listening() opens the mic stream and starts voice activity detection (VAD).
+2. The PortAudio callback computes the RMS energy of each block (~64 ms).
+   - When energy exceeds SPEECH_THR for CONFIRM_FRAMES consecutive blocks
+     → speech confirmed: on_state_change("recording") is called, recognizing.wav plays.
+   - When energy drops below SPEECH_THR for SILENCE_FRAMES consecutive blocks
+     → end of utterance detected: _vad_done is signalled.
+3. _vad_watcher() (daemon thread) waits for _vad_done, closes the stream, and
+   launches _transcribe_worker() in a new daemon thread.
+4. _transcribe_worker() calls Whisper then invokes on_transcript or on_not_recognized.
 
-Aucun deuxième clic nécessaire — c'est le silence qui déclenche la transcription.
+No second click needed — silence triggers transcription automatically.
 
 Public surface
 --------------
 STTListener(on_transcript, on_state_change, on_error, on_not_recognized)
-    .device             — int | None  ; set avant start_listening()
-    .start_listening()  — ouvre le micro, lance la VAD
-    .cancel()           — abandonne sans produire de transcript
-    .is_busy            — True si état ≠ "idle"
+    .device             — int | None  ; set before start_listening()
+    .start_listening()  — open the mic, start VAD
+    .cancel()           — abort without producing a transcript
+    .is_busy            — True when state != "idle"
 """
 
 import collections
@@ -38,19 +38,19 @@ from core.constants import (
 
 
 # ---------------------------------------------------------------------------
-# Constantes VAD
+# VAD constants
 # ---------------------------------------------------------------------------
 
-BLOCKSIZE         = 1024  # frames par callback PortAudio  (~64 ms à 16 kHz)
-SPEECH_THR        = 0.012 # seuil RMS pour classifier un bloc comme parole
-CONFIRM_FRAMES    = 3     # blocs consécutifs au-dessus du seuil pour confirmer (~192 ms)
-SILENCE_FRAMES    = 12    # blocs consécutifs sous le seuil pour finir  (~768 ms)
-PREROLL_FRAMES    = 5     # blocs gardés avant le début de parole pour contexte (~320 ms)
-MAX_RECORD_FRAMES = int(30 * STT_SAMPLE_RATE / BLOCKSIZE)  # arrêt auto après 30 s
+BLOCKSIZE         = 1024  # frames per PortAudio callback  (~64 ms at 16 kHz)
+SPEECH_THR        = 0.012 # RMS energy threshold to classify a block as speech
+CONFIRM_FRAMES    = 3     # consecutive blocks above threshold to confirm speech (~192 ms)
+SILENCE_FRAMES    = 12    # consecutive blocks below threshold to end utterance (~768 ms)
+PREROLL_FRAMES    = 5     # blocks kept before speech onset for context (~320 ms)
+MAX_RECORD_FRAMES = int(30 * STT_SAMPLE_RATE / BLOCKSIZE)  # auto-stop after 30 s
 
 
 # ---------------------------------------------------------------------------
-# Singleton modèle Whisper
+# Whisper model singleton
 # ---------------------------------------------------------------------------
 
 _model: "WhisperModel | None" = None
@@ -58,11 +58,11 @@ _model_lock = threading.Lock()
 
 
 def _get_model(model_size: str = STT_MODEL_SIZE) -> WhisperModel:
-    """Retourne le WhisperModel en cache, le charge au premier appel.
+    """Return the cached WhisperModel, loading it on the first call.
 
-    Thread-safe via _model_lock. Premier appel : ~2–4 s selon le CPU.
-    download_root pointe vers %APPDATA%/FrenchTTS/stt_models pour survivre
-    aux répertoires temporaires de PyInstaller.
+    Thread-safe via _model_lock. First call takes ~2–4 s on CPU.
+    download_root points to %APPDATA%/FrenchTTS/stt_models so the model
+    survives PyInstaller's temporary extraction directory.
     """
     global _model
     with _model_lock:
@@ -81,30 +81,30 @@ def _get_model(model_size: str = STT_MODEL_SIZE) -> WhisperModel:
 # ---------------------------------------------------------------------------
 
 class STTListener:
-    """Gère la capture micro et la transcription en arrière-plan.
+    """Manages microphone capture and background transcription.
 
-    Modèle de threads
-    -----------------
-    - start_listening() ouvre un sd.InputStream ; le callback PortAudio tourne
-      sur le thread interne de PortAudio.
-    - La VAD met à jour des compteurs dans le callback (pas de lock nécessaire
-      car un seul thread écrit ces valeurs) et signale la fin via threading.Event.
-    - _vad_watcher() tourne en daemon et attend le signal avant de fermer le
-      stream et de lancer _transcribe_worker().
-    - Tous les callbacks fournis par l'appelant sont invoqués depuis des threads
-      non-Tkinter ; l'appelant doit les marshaller via after(0, ...).
+    Threading model
+    ---------------
+    - start_listening() opens an sd.InputStream; the PortAudio callback runs
+      on PortAudio's internal thread.
+    - VAD updates counters inside the callback (no lock needed since only one
+      thread writes these values) and signals end-of-speech via threading.Event.
+    - _vad_watcher() runs as a daemon and waits for the signal before closing
+      the stream and launching _transcribe_worker().
+    - All caller-provided callbacks are invoked from non-Tkinter threads;
+      the caller must marshal them via after(0, ...).
 
-    Paramètres
+    Parameters
     ----------
     on_transcript : callable(str)
-        Appelé quand la transcription produit un texte non vide.
+        Called when transcription produces non-empty text.
     on_state_change : callable(str)
-        Appelé à chaque changement d'état : "idle", "listening", "recording",
-        "transcribing". Peut être appelé depuis le thread PortAudio.
+        Called on each state change: "idle", "listening", "recording",
+        "transcribing". May be called from the PortAudio thread.
     on_error : callable(str)
-        Message d'erreur lisible (micro inaccessible, crash Whisper…).
+        Human-readable error message (inaccessible mic, Whisper crash, etc.).
     on_not_recognized : callable()
-        Appelé quand Whisper ne produit aucun texte (VAD a tout filtré, etc.).
+        Called when Whisper returns no text (VAD filtered everything, etc.).
     """
 
     def __init__(self, on_transcript, on_state_change, on_error,
@@ -119,10 +119,10 @@ class STTListener:
         self._cancel_flag  = threading.Event()
         self._stream:      "sd.InputStream | None" = None
 
-        # Périphérique d'entrée ; None = micro système par défaut.
+        # Input device index; None = system default microphone.
         self.device: "int | None" = None
 
-        # État VAD — réinitialisé par _reset_vad() avant chaque écoute
+        # VAD state — reset by _reset_vad() before each listening session
         self._vad_speech      = False
         self._vad_confirm_n   = 0
         self._vad_silence_n   = 0
@@ -132,18 +132,17 @@ class STTListener:
         self._audio_chunks:   list = []
         self._vad_done:       threading.Event = threading.Event()
 
-    # --- API publique (appelée depuis le thread principal) ------------------
+    # --- Public API (called from the main thread) ---------------------------
 
     @property
     def is_busy(self) -> bool:
         return self._state != "idle"
 
     def start_listening(self) -> None:
-        """Ouvre le stream micro et démarre la détection vocale (VAD).
+        """Open the mic stream and start voice activity detection.
 
-        Aucun clic supplémentaire n'est nécessaire : le silence détecté après
-        la parole déclenche automatiquement la transcription. Pour interrompre,
-        appeler cancel().
+        No additional click is needed: silence detected after speech
+        triggers transcription automatically. Call cancel() to abort.
         """
         if self._state != "idle":
             return
@@ -165,23 +164,23 @@ class STTListener:
         threading.Thread(target=self._vad_watcher, daemon=True).start()
 
     def cancel(self) -> None:
-        """Abandonne l'écoute ou la transcription sans produire de résultat."""
+        """Abort listening or transcription without producing a result."""
         self._cancel_flag.set()
-        self._vad_done.set()   # débloque _vad_watcher si en attente
+        self._vad_done.set()   # unblock _vad_watcher if waiting
         self._close_stream()
         if self._state != "idle":
             self._set_state("idle")
 
-    # --- Callback VAD (thread PortAudio) ------------------------------------
+    # --- VAD callback (PortAudio thread) ------------------------------------
 
     def _vad_callback(self, indata: np.ndarray, frames: int,
                       time_info, status) -> None:
-        """Analyse l'énergie RMS de chaque bloc audio en temps réel.
+        """Analyse RMS energy of each audio block in real time.
 
-        Appelé par PortAudio sur son propre thread interne. Aucune opération
-        bloquante ni appel à l'API sounddevice ici (règle PortAudio).
-        On signale la fin de parole via threading.Event pour que _vad_watcher
-        ferme le stream proprement depuis un thread séparé.
+        Called by PortAudio on its internal thread. No blocking operations
+        and no sounddevice API calls here (PortAudio callback rule).
+        End-of-speech is signalled via threading.Event so _vad_watcher can
+        close the stream safely from a separate thread.
         """
         if self._cancel_flag.is_set():
             return
@@ -190,15 +189,15 @@ class STTListener:
         energy = float(np.sqrt(np.mean(chunk ** 2)))
 
         if not self._vad_speech:
-            # Phase d'attente : on accumule un pre-roll et on cherche l'onset
+            # Waiting phase: accumulate pre-roll and look for speech onset
             self._preroll.append(chunk)
             if energy > SPEECH_THR:
                 self._vad_confirm_n += 1
                 if self._vad_confirm_n >= CONFIRM_FRAMES:
-                    # Parole confirmée
+                    # Speech confirmed
                     self._vad_speech = True
                     self._vad_silence_n = 0
-                    # pre-roll + bloc courant (déjà dans deque) = début de l'énoncé
+                    # pre-roll + current block (already in deque) = start of utterance
                     self._speech_chunks = list(self._preroll)
                     if not self._speech_notified:
                         self._speech_notified = True
@@ -207,7 +206,7 @@ class STTListener:
             else:
                 self._vad_confirm_n = 0
         else:
-            # Phase d'enregistrement : accumule et surveille le silence
+            # Recording phase: accumulate audio and watch for silence
             self._speech_chunks.append(chunk)
             if energy < SPEECH_THR:
                 self._vad_silence_n += 1
@@ -215,17 +214,17 @@ class STTListener:
                     self._vad_done.set()
             else:
                 self._vad_silence_n = 0
-            # Arrêt auto après 30 secondes pour éviter un buffer sans fin
+            # Auto-stop after 30 seconds to prevent an unbounded buffer
             if len(self._speech_chunks) >= MAX_RECORD_FRAMES:
                 self._vad_done.set()
 
-    # --- Thread watcher (daemon) -------------------------------------------
+    # --- Watcher thread (daemon) --------------------------------------------
 
     def _vad_watcher(self) -> None:
-        """Attend la fin de parole détectée par la VAD, puis transcrit.
+        """Wait for end-of-speech detected by VAD, then transcribe.
 
-        Tourne en daemon. Ferme le stream depuis ce thread (sûr, contrairement
-        au callback) et démarre _transcribe_worker dans un nouveau daemon.
+        Runs as a daemon. Closes the stream from this thread (safe, unlike
+        from the callback) and starts _transcribe_worker in a new daemon.
         """
         self._vad_done.wait()
         if self._cancel_flag.is_set():
@@ -238,21 +237,21 @@ class STTListener:
         self._set_state("transcribing")
         threading.Thread(target=self._transcribe_worker, daemon=True).start()
 
-    # --- Transcription (daemon) --------------------------------------------
+    # --- Transcription (daemon) ---------------------------------------------
 
     def _transcribe_worker(self) -> None:
-        """Concatène les chunks audio, appelle Whisper, livre le résultat.
+        """Concatenate audio chunks, call Whisper, deliver the result.
 
-        Réglages pour le français
-        --------------------------
-        temperature=0                   sortie déterministe
-        beam_size=5 / best_of=5        recherche large sans surcoût excessif
-        condition_on_previous_text=False évite les hallucinations en cascade
-        initial_prompt                   amorce Whisper vers le français
-                                         (accents, cédilles, liaisons)
-        no_speech_threshold=0.6         rejette les segments peu confiants
-        compression_ratio_threshold=2.4 détecte les répétitions hallucinatoires
-        vad_filter                       filtre le silence résiduel en post-hoc
+        Whisper settings for French
+        ---------------------------
+        temperature=0                    deterministic output
+        beam_size=5 / best_of=5         wide search without excessive overhead
+        condition_on_previous_text=False prevents cascading hallucinations
+        initial_prompt                   primes Whisper toward colloquial French
+                                         including accents, contractions, slang
+        no_speech_threshold=0.45        rejects low-confidence segments
+        compression_ratio_threshold=2.4 detects hallucinatory repetitions
+        vad_filter                       post-hoc silence filtering
         """
         if self._cancel_flag.is_set():
             self._set_state("idle")
@@ -284,13 +283,20 @@ class STTListener:
                 best_of=5,
                 temperature=0.0,
                 condition_on_previous_text=False,
-                initial_prompt="Transcription en français :",
-                no_speech_threshold=0.6,
+                # Prompt anchored on colloquial spoken French, including pronouns
+                # and commonly confused words (ça/ta, c'est/sais, j'ai, t'as)
+                # and informal language so Whisper does not filter or substitute them.
+                initial_prompt=(
+                    "Transcription fidèle du français parlé, incluant le langage "
+                    "familier et les jurons. Exemples : ça, c'est, j'ai, t'as, t'es, "
+                    "y'a, ouais, putain, merde, bordel, oh là là, quoi, enfin."
+                ),
+                no_speech_threshold=0.45,
                 compression_ratio_threshold=2.4,
                 vad_filter=True,
                 vad_parameters={
-                    "threshold": 0.5,
-                    "min_speech_duration_ms": 250,
+                    "threshold": 0.45,
+                    "min_speech_duration_ms": 200,
                     "min_silence_duration_ms": 600,
                     "speech_pad_ms": 400,
                 },
@@ -307,10 +313,10 @@ class STTListener:
         else:
             self._on_not_recognized()
 
-    # --- Helpers internes ---------------------------------------------------
+    # --- Internal helpers ---------------------------------------------------
 
     def _reset_vad(self) -> None:
-        """Remet à zéro tous les compteurs et buffers VAD avant une nouvelle écoute."""
+        """Reset all VAD counters and buffers before a new listening session."""
         self._cancel_flag.clear()
         self._vad_speech      = False
         self._vad_confirm_n   = 0

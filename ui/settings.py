@@ -51,19 +51,19 @@ class SettingsWindow(ctk.CTkToplevel):
     # --- Layout -------------------------------------------------------------
 
     def _build(self) -> None:
-        """Construit la grille de paramètres.
+        """Build the settings grid.
 
-        Colonnes :
-          col 0  largeur fixe (minsize=150) pour les labels — alignement garanti.
-          col 1  extensible pour les contrôles (sliders, menus).
-          col 2  étroite pour les boutons auxiliaires (rafraîchissement ↺).
+        Columns:
+          col 0  fixed width (minsize=150) for labels — guaranteed alignment.
+          col 1  expandable for controls (sliders, menus).
+          col 2  narrow for auxiliary buttons (refresh ↺).
 
-        Organisation par sections visuelles :
-          Voix & Périphériques — voix, sortie TTS, casque (monitoring)
-          Paramètres vocaux    — vitesse, volume, pitch
-          Interface            — opacité
-          Raccourcis clavier   — touche Redire, touche Arrêter
-          Micro → TTS          — activation, choix du microphone
+        Visual sections:
+          Voice & Devices  — voice, TTS output, headphone monitoring
+          Voice settings   — speed, volume, pitch
+          Interface        — opacity
+          Keyboard         — replay key, stop key
+          STT              — enable toggle, keybind, auto-restart, microphone
         """
         self.columnconfigure(0, minsize=150, weight=0)
         self.columnconfigure(1, weight=1)
@@ -72,22 +72,22 @@ class SettingsWindow(ctk.CTkToplevel):
         LBL = dict(padx=(20, 8), pady=6, sticky="w")
         CTL = dict(padx=(0, 16), pady=6)
 
-        # ── En-tête ─────────────────────────────────────────────────────────
+        # ── Header ──────────────────────────────────────────────────────────
         ctk.CTkLabel(self, text="Paramètres",
                      font=ctk.CTkFont(size=16, weight="bold")
                      ).grid(row=0, column=0, columnspan=3, pady=(16, 6))
 
-        # ── Section : Voix & Périphériques ──────────────────────────────────
+        # ── Section: Voice & Devices ─────────────────────────────────────────
         self._section_label(row=1, text="Voix & Périphériques")
 
-        # Voix TTS
+        # TTS voice
         ctk.CTkLabel(self, text="Voix :").grid(row=2, column=0, **LBL)
         ctk.CTkOptionMenu(self, variable=self._app.voice_var,
                           values=list(VOICES.keys())
                           ).grid(row=2, column=1, columnspan=2, sticky="ew", **CTL)
 
-        # Sortie TTS principale (ex. VB-Cable pour router vers Discord)
-        # ↺ re-interroge sounddevice pour les périphériques branchés après le lancement.
+        # Primary TTS output (e.g. VB-Cable to route into Discord)
+        # ↺ re-queries sounddevice for devices plugged in after launch.
         ctk.CTkLabel(self, text="Sortie TTS :").grid(row=3, column=0, **LBL)
         self.device_menu = ctk.CTkOptionMenu(
             self, variable=self._app.device_var, values=[])
@@ -97,8 +97,8 @@ class SettingsWindow(ctk.CTkToplevel):
                       ).grid(row=3, column=2, padx=(0, 16), pady=6)
         self._app._populate_devices(widget=self.device_menu)
 
-        # Casque / monitoring : écouter le TTS en parallèle sur un second périphérique.
-        # Le switch et le menu sont sur la même ligne pour compacité.
+        # Headphone / monitoring: hear TTS simultaneously on a second output device.
+        # Switch and menu share one row for compactness.
         ctk.CTkLabel(self, text="Casque :").grid(row=4, column=0, **LBL)
         casque_frame = ctk.CTkFrame(self, fg_color="transparent")
         casque_frame.grid(row=4, column=1, columnspan=2, sticky="ew", **CTL)
@@ -119,7 +119,7 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self._separator(row=5)
 
-        # ── Section : Paramètres vocaux ──────────────────────────────────────
+        # ── Section: Voice settings ──────────────────────────────────────────
         self._section_label(row=6, text="Paramètres vocaux")
 
         for row, label, var, lo, hi, fmt in [
@@ -132,11 +132,11 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self._separator(row=10)
 
-        # ── Section : Interface ──────────────────────────────────────────────
+        # ── Section: Interface ───────────────────────────────────────────────
         self._section_label(row=11, text="Interface")
 
-        # Opacité 0,4–1,0. À exactement 1,0 l'effet acrylique est coupé
-        # (voir apply_window_transparency).
+        # Opacity range 0.4–1.0. At exactly 1.0 the acrylic effect is disabled
+        # (see apply_window_transparency).
         ctk.CTkLabel(self, text="Opacité :").grid(row=12, column=0, **LBL)
         op_frame = ctk.CTkFrame(self, fg_color="transparent")
         op_frame.grid(row=12, column=1, columnspan=2, sticky="ew", **CTL)
@@ -152,11 +152,11 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self._separator(row=13)
 
-        # ── Section : Raccourcis clavier ─────────────────────────────────────
+        # ── Section: Keyboard shortcuts ───────────────────────────────────────
         self._section_label(row=14, text="Raccourcis clavier")
 
-        # Les deux lignes utilisent le même mécanisme _start_key_capture.
-        # post_fn rebind la touche Tkinter + le hotkey global (keyboard lib).
+        # Both rows use the same _start_key_capture mechanism.
+        # post_fn rebinds the Tkinter key and the global keyboard-lib hotkey.
         self._replay_key_lbl, self._replay_key_btn = self._hotkey_row(
             row=15, label="Touche Redire :",
             var=self._app.replay_key_var,
@@ -173,13 +173,20 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self._separator(row=17)
 
-        # ── Section : Micro → TTS ────────────────────────────────────────────
-        self._section_label(row=18, text="Micro → TTS  (détection vocale automatique)")
+        # ── Section: STT ─────────────────────────────────────────────────────
+        self._section_label(row=18, text="STT — Reconnaissance vocale")
+        ctk.CTkLabel(
+            self,
+            text="STT (Speech-to-Text) : micro → texte   •   TTS (Text-to-Speech) : texte → voix",
+            font=ctk.CTkFont(size=10),
+            text_color=("gray50", "gray50"),
+            anchor="w",
+        ).grid(row=19, column=0, columnspan=3, padx=20, pady=(0, 4), sticky="w")
 
-        # Activation : affiche/masque le bouton micro dans la fenêtre principale.
-        ctk.CTkLabel(self, text="Activer :").grid(row=19, column=0, **LBL)
+        # Enable toggle: show/hide the STT button in the main window.
+        ctk.CTkLabel(self, text="Activer :").grid(row=20, column=0, **LBL)
         stt_sw_frame = ctk.CTkFrame(self, fg_color="transparent")
-        stt_sw_frame.grid(row=19, column=1, columnspan=2, sticky="w", **CTL)
+        stt_sw_frame.grid(row=20, column=1, columnspan=2, sticky="w", **CTL)
         ctk.CTkSwitch(
             stt_sw_frame, text="",
             variable=self._app.stt_enabled_var,
@@ -188,23 +195,42 @@ class SettingsWindow(ctk.CTkToplevel):
             width=46,
         ).grid(row=0, column=0, sticky="w")
 
-        # Microphone d'entrée pour la VAD/STT.
-        # ↺ re-interroge sounddevice (micro USB branché après le lancement).
-        ctk.CTkLabel(self, text="Microphone :").grid(row=20, column=0, **LBL)
+        # STT keybind: toggle mic listening.
+        self._stt_key_lbl, self._stt_key_btn = self._hotkey_row(
+            row=21, label="Touche STT :",
+            var=self._app.stt_key_var,
+            post_fn=lambda: (self._app._bind_stt_key(),
+                             self._app._bind_global_hotkeys()),
+            lbl_kw=LBL, ctl_kw=CTL)
+
+        # Auto-restart: re-trigger listening automatically after each TTS playback.
+        ctk.CTkLabel(self, text="Redémarrage auto :").grid(row=22, column=0, **LBL)
+        stt_ar_frame = ctk.CTkFrame(self, fg_color="transparent")
+        stt_ar_frame.grid(row=22, column=1, columnspan=2, sticky="w", **CTL)
+        ctk.CTkSwitch(
+            stt_ar_frame, text="",
+            variable=self._app.stt_auto_restart_var,
+            onvalue=True, offvalue=False,
+            width=46,
+        ).grid(row=0, column=0, sticky="w")
+
+        # Input microphone for VAD/STT.
+        # ↺ re-queries sounddevice (e.g. USB mic plugged in after launch).
+        ctk.CTkLabel(self, text="Microphone :").grid(row=23, column=0, **LBL)
         self.stt_input_menu = ctk.CTkOptionMenu(
             self, variable=self._app.stt_input_var, values=[])
-        self.stt_input_menu.grid(row=20, column=1, sticky="ew", padx=(0, 4), pady=6)
+        self.stt_input_menu.grid(row=23, column=1, sticky="ew", padx=(0, 4), pady=6)
         ctk.CTkButton(self, text="↺", width=32,
                       command=lambda: self._app._populate_input_devices(
                           widget=self.stt_input_menu)
-                      ).grid(row=20, column=2, padx=(0, 16), pady=6)
+                      ).grid(row=23, column=2, padx=(0, 16), pady=6)
         self._app._populate_input_devices(widget=self.stt_input_menu)
 
-        self._separator(row=21)
+        self._separator(row=24)
 
-        # ── Pied de page ─────────────────────────────────────────────────────
+        # ── Footer ───────────────────────────────────────────────────────────
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.grid(row=22, column=0, columnspan=3, pady=(10, 14))
+        btn_frame.grid(row=25, column=0, columnspan=3, pady=(10, 14))
         ctk.CTkButton(btn_frame, text="Dossier config", width=140,
                       **_BTN_SECONDARY,
                       command=lambda: _safe_open(BASE_DIR)

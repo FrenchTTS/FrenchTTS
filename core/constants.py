@@ -78,10 +78,12 @@ DEFAULT_SETTINGS: dict = {
     "pitch":      0,     # Hz offset, e.g. -10 = 10 Hz lower
     "opacity":    0.93,  # 1.0 = fully opaque (acrylic disabled)
     "replay_key":      "F2",     # Tkinter keysym — also used as keyboard lib hotkey
-    "stop_key":        "F3",     # same format; triggers Arrêter globally
+    "stop_key":        "F3",     # same format; triggers the Stop action globally
     "stt_model_size":  "small",  # faster-whisper model size
-    "stt_enabled":      True,   # show/hide the Micro → TTS button
+    "stt_enabled":      False,  # show/hide the STT button (disabled by default)
     "stt_input_device": "",    # empty → system default microphone
+    "stt_key":          "F1",  # keybind to toggle STT (Tkinter keysym)
+    "stt_auto_restart": False, # re-trigger listening after each TTS playback
     "monitor_enabled":  False, # play TTS audio on a second output device
     "monitor_device":   "",    # empty → auto-select first non-VB-Cable output
 }

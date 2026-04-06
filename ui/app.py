@@ -72,14 +72,19 @@ class FrenchTTSApp(ctk.CTk):
         # during startup (before the window is fully shown) does not trigger
         # an immediate tray minimise.
         self._ready         = False
-        self._current_key   = ""   # currently bound replay keysym (Tkinter)
-        self._current_stop  = ""   # currently bound stop keysym (Tkinter)
-        self._hk_replay     = None # keyboard-lib hotkey handle for global replay
-        self._hk_stop       = None # keyboard-lib hotkey handle for global stop
+        self._current_key    = ""   # currently bound replay keysym (Tkinter)
+        self._current_stop   = ""   # currently bound stop keysym (Tkinter)
+        self._current_stt    = ""   # currently bound STT keysym (Tkinter)
+        self._hk_replay      = None # keyboard-lib hotkey handle for global replay
+        self._hk_stop        = None # keyboard-lib hotkey handle for global stop
+        self._hk_stt         = None # keyboard-lib hotkey handle for STT toggle
 
         # --- STT state ------------------------------------------------------
-        self._stt_state = "idle"   # "idle" | "recording" | "transcribing"
-        self._listener: STTListener | None = None
+        # _stt_triggered_tts is set to True by _apply_transcript so the
+        # auto-restart logic knows the TTS came from STT, not a manual input.
+        self._stt_state         = "idle"  # "idle"|"listening"|"recording"|"transcribing"
+        self._listener:         STTListener | None = None
+        self._stt_triggered_tts = False
 
         # --- Text input history (Up/Down navigation) ------------------------
         # Mirrors the behaviour of a shell: Up walks backwards through
@@ -101,11 +106,13 @@ class FrenchTTSApp(ctk.CTk):
         self.opacity_var      = ctk.DoubleVar(value=0.93)
         self.replay_key_var   = ctk.StringVar(value="F2")
         self.stop_key_var     = ctk.StringVar(value="F3")
-        self.stt_enabled_var    = ctk.BooleanVar(value=True)
-        self.stt_input_var      = ctk.StringVar()
-        self._input_device_map: dict[str, int] = {}
-        self.monitor_enabled_var = ctk.BooleanVar(value=False)
-        self.monitor_device_var  = ctk.StringVar()
+        self.stt_enabled_var      = ctk.BooleanVar(value=True)
+        self.stt_input_var        = ctk.StringVar()
+        self.stt_key_var          = ctk.StringVar(value="F1")
+        self.stt_auto_restart_var = ctk.BooleanVar(value=False)
+        self._input_device_map:   dict[str, int] = {}
+        self.monitor_enabled_var  = ctk.BooleanVar(value=False)
+        self.monitor_device_var   = ctk.StringVar()
 
         # --- Boot sequence --------------------------------------------------
         self._build_ui()
@@ -133,7 +140,8 @@ class FrenchTTSApp(ctk.CTk):
         self._load_history()
         self._bind_replay_key()      # must run after _load_settings sets replay_key_var
         self._bind_stop_key()
-        self._bind_global_hotkeys()  # register both hotkeys system-wide
+        self._bind_stt_key()         # must run after _load_settings sets stt_key_var
+        self._bind_global_hotkeys()  # register replay+stop hotkeys system-wide
 
         self.protocol("WM_DELETE_WINDOW", self._shutdown)
         self.bind("<Unmap>", self._on_unmap)
@@ -219,9 +227,10 @@ class FrenchTTSApp(ctk.CTk):
             command=self._open_settings
         ).grid(row=1, column=1, sticky="ew", padx=(3, 0))
 
-        # Row 2: microphone → STT → TTS pipeline button (full-width, ghost style)
+        # Row 2: microphone → STT → TTS pipeline button (full-width, ghost style).
+        # Label is updated after _load_settings to include the configured keybind.
         self.mic_btn = ctk.CTkButton(
-            btn_row, text="🎙  Micro → TTS", height=33,
+            btn_row, text="🎙  STT", height=33,
             font=ctk.CTkFont(size=13),
             **_BTN_SECONDARY,
             command=self._on_mic_toggle)
@@ -386,6 +395,9 @@ class FrenchTTSApp(ctk.CTk):
         if not self.stt_enabled_var.get():
             self.mic_btn.grid_remove()
 
+        self.stt_key_var.set(str(cfg.get("stt_key", "F1")))
+        self.stt_auto_restart_var.set(bool(cfg.get("stt_auto_restart", False)))
+
         self.monitor_enabled_var.set(bool(cfg.get("monitor_enabled", False)))
         saved_mon = cfg.get("monitor_device", "")
         if saved_mon:
@@ -414,6 +426,8 @@ class FrenchTTSApp(ctk.CTk):
                     "stt_input_device": self.stt_input_var.get(),
                     "monitor_enabled":  self.monitor_enabled_var.get(),
                     "monitor_device":   self.monitor_device_var.get(),
+                    "stt_key":          self.stt_key_var.get(),
+                    "stt_auto_restart": self.stt_auto_restart_var.get(),
                 }, f, indent=2, ensure_ascii=False)
         except OSError:
             pass
@@ -454,6 +468,25 @@ class FrenchTTSApp(ctk.CTk):
         except Exception:
             pass
 
+    def _bind_stt_key(self) -> None:
+        """Update the Tkinter window binding and button label for the STT hotkey."""
+        if self._current_stt:
+            try:
+                self.unbind(f"<{self._current_stt}>")
+            except Exception:
+                pass
+        key = self.stt_key_var.get()
+        self._current_stt = key
+        self._update_mic_btn_label()
+        try:
+            self.bind(f"<{key}>", lambda e: self._on_mic_toggle())
+        except Exception:
+            pass
+
+    def _update_mic_btn_label(self) -> None:
+        """Refresh the mic button label to show the current STT keybind."""
+        self.mic_btn.configure(text=f"🎙  STT  ({self.stt_key_var.get()})")
+
     def _bind_global_hotkeys(self) -> None:
         """Register system-wide hotkeys via the keyboard library.
 
@@ -466,7 +499,7 @@ class FrenchTTSApp(ctk.CTk):
         a misconfigured hotkey does not break the rest of the app.
         """
         # Remove previously registered handles before re-registering
-        for hk in (self._hk_replay, self._hk_stop):
+        for hk in (self._hk_replay, self._hk_stop, self._hk_stt):
             if hk is not None:
                 try:
                     keyboard.remove_hotkey(hk)
@@ -486,6 +519,13 @@ class FrenchTTSApp(ctk.CTk):
                 lambda: self.after(0, self._on_stop))
         except Exception:
             self._hk_stop = None
+
+        try:
+            self._hk_stt = keyboard.add_hotkey(
+                self.stt_key_var.get().lower(),
+                lambda: self.after(0, self._on_mic_toggle))
+        except Exception:
+            self._hk_stt = None
 
     # --- Settings window ----------------------------------------------------
 
@@ -584,8 +624,11 @@ class FrenchTTSApp(ctk.CTk):
         Setting _stop_event causes the async polling loop inside _play_pcm
         to call sd.stop() on its next iteration. Calling sd.stop() here too
         ensures the audio stops even if the thread hasn't reached that check yet.
+        _stt_triggered_tts is cleared so a manual stop does not accidentally
+        trigger auto-restart on a subsequent normal TTS.
         """
         self._stop_event.set()
+        self._stt_triggered_tts = False
         sd.stop()
         self._restore_ui()
 
@@ -602,12 +645,11 @@ class FrenchTTSApp(ctk.CTk):
     # --- STT / Microphone ---------------------------------------------------
 
     def _on_mic_toggle(self) -> None:
-        """Démarre l'écoute VAD ou annule si déjà en cours.
+        """Start VAD listening, or cancel if already in progress.
 
-        Un seul clic suffit : la VAD détecte automatiquement la fin de parole.
-        Un second clic pendant l'écoute ou l'enregistrement annule sans transcrire.
-        Bloqué si le TTS est en cours de lecture ; le bouton est désactivé pendant
-        la transcription (état "transcribing").
+        A single press is enough: VAD detects end-of-speech automatically.
+        A second press during listening or recording cancels without transcribing.
+        Blocked while TTS is playing; button is disabled during transcription.
         """
         if self._tts_thread and self._tts_thread.is_alive():
             return
@@ -616,15 +658,17 @@ class FrenchTTSApp(ctk.CTk):
             self._listener.start_listening()
         elif self._stt_state in ("listening", "recording"):
             self._listener.cancel()
-            self._restore_ui()   # restore speak/replay immédiatement (pas de TTS prévu)
+            self._restore_ui()   # restore speak/replay immediately (no TTS pending)
 
     def _on_stt_toggle(self) -> None:
         """Show or hide the mic button when STT is enabled/disabled in settings.
 
         When disabling, any active recording is cancelled immediately.
-        When enabling, the button is restored at its normal grid position.
+        When enabling, the button label is refreshed (key may have changed
+        while the button was hidden) before restoring its grid position.
         """
         if self.stt_enabled_var.get():
+            self._update_mic_btn_label()
             self.mic_btn.grid()
         else:
             if self._listener:
@@ -636,24 +680,24 @@ class FrenchTTSApp(ctk.CTk):
         self.after(0, lambda s=new_state: self._apply_stt_state(s))
 
     def _apply_stt_state(self, state: str) -> None:
-        """Applique l'état STT à l'interface — doit tourner sur le thread principal.
+        """Apply an STT state change to the UI — must run on the main thread.
 
-        Machine d'états du bouton micro :
-          idle         → "🎙 Micro → TTS" (style ghost, actif)
-          listening    → "👂 En écoute..." (vert foncé) — micro ouvert, attente parole
-          recording    → "🔊 Parole..." (rouge) + recognizing.wav — parole détectée
-          transcribing → "🎙 Micro → TTS" (désactivé) — Whisper en cours
+        Button state machine:
+          idle         → "🎙 STT (key)" (ghost style, enabled)
+          listening    → "👂 En écoute..." (dark green) — mic open, waiting for speech
+          recording    → "🔊 Parole..." (red) + recognizing.wav — speech detected
+          transcribing → "🎙 STT" (disabled) — Whisper running
 
-        speak_btn / replay_btn sont restaurés par _restore_ui(), appelé depuis :
-          - _on_mic_toggle (annulation)
-          - _on_stt_not_recognized / _on_stt_error (fin sans TTS)
-          - _run_worker.finally (fin du TTS)
-        Ils ne sont PAS restaurés ici pour éviter une race avec _apply_transcript.
+        speak_btn / replay_btn are restored by _restore_ui(), called from:
+          - _on_mic_toggle (user cancellation)
+          - _on_stt_not_recognized / _on_stt_error (end without TTS)
+          - _run_worker.finally (TTS finished)
+        They are NOT restored here to avoid a race with _apply_transcript.
         """
         self._stt_state = state
         if state == "idle":
             self.mic_btn.configure(
-                text="🎙  Micro → TTS",
+                text=f"🎙  STT  ({self.stt_key_var.get()})",
                 state="normal",
                 fg_color=_BTN_SECONDARY["fg_color"],
                 hover_color=_BTN_SECONDARY["hover_color"],
@@ -679,7 +723,7 @@ class FrenchTTSApp(ctk.CTk):
             play_sound(SND_RECOGNIZING)
         elif state == "transcribing":
             self.mic_btn.configure(
-                text="🎙  Micro → TTS",
+                text="🎙  STT",
                 state="disabled",
             )
             self._set_status(STATUS_TRANSCRIBING)
@@ -697,6 +741,7 @@ class FrenchTTSApp(ctk.CTk):
         """
         play_sound(SND_RECOGNIZED)
         self._set_textbox(text)
+        self._stt_triggered_tts = True
         self._on_speak()
 
     def _on_stt_not_recognized(self) -> None:
@@ -714,6 +759,19 @@ class FrenchTTSApp(ctk.CTk):
             self._restore_ui()
         self.after(0, _ui)
 
+    def _maybe_auto_restart_stt(self) -> None:
+        """Re-trigger STT listening if auto-restart is enabled and TTS came from STT.
+
+        Called from _run_worker's finally block (main thread via after(0)).
+        Does nothing if TTS was triggered manually (_stt_triggered_tts is False).
+        Does nothing if the user has disabled auto-restart or STT entirely.
+        """
+        if not self._stt_triggered_tts:
+            return
+        self._stt_triggered_tts = False
+        if self.stt_auto_restart_var.get() and self.stt_enabled_var.get():
+            self._on_mic_toggle()
+
     def _shutdown(self) -> None:
         """Save state and destroy the application.
 
@@ -723,7 +781,7 @@ class FrenchTTSApp(ctk.CTk):
         self.after(0, self.destroy) defers destruction so this method can
         safely be called from a non-Tkinter thread (tray or keyboard callback).
         """
-        for hk in (self._hk_replay, self._hk_stop):
+        for hk in (self._hk_replay, self._hk_stop, self._hk_stt):
             if hk is not None:
                 try:
                     keyboard.remove_hotkey(hk)
@@ -861,6 +919,7 @@ class FrenchTTSApp(ctk.CTk):
                 loop.close()
                 if not self._stop_event.is_set():
                     self._restore_ui()
+                    self.after(0, self._maybe_auto_restart_stt)
         self._tts_thread = threading.Thread(target=target, daemon=True)
         self._tts_thread.start()
 
