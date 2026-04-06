@@ -1,0 +1,82 @@
+# Build & Release workflow
+#
+# Triggered by pushing a version tag (e.g. git tag v1.1.0 && git push origin v1.1.0).
+# Builds a self-contained FrenchTTS.exe on Windows and publishes it as a
+# GitHub Release asset so the in-app auto-updater can find it via the API.
+#
+# Release procedure for maintainers:
+#   1. Update APP_VERSION in main.py to match the new tag (without the "v").
+#   2. Commit and push.
+#   3. git tag v1.x.x && git push origin v1.x.x
+#   4. This workflow runs automatically and publishes the release.
+
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write   # required to create GitHub Releases
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip --disable-pip-version-check
+          python -m pip install -r requirements.txt pyinstaller --disable-pip-version-check
+
+      # Fail fast if the developer forgot to bump APP_VERSION before tagging.
+      - name: Verify APP_VERSION matches tag
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}" -replace "^v", ""
+          $content = Get-Content main.py -Raw
+          if ($content -match "APP_VERSION\s*=\s*[`"']([\d.]+)[`"']") {
+            $ver = $Matches[1]
+          } else {
+            throw "Could not find APP_VERSION in main.py"
+          }
+          if ($ver -ne $tag) {
+            throw "Tag ${{ github.ref_name }} does not match APP_VERSION = '$ver' in main.py. Update APP_VERSION and re-tag."
+          }
+          Write-Host "Version check passed: $ver"
+
+      # Command mirrors build.bat exactly so local and CI builds are identical.
+      - name: Build executable
+        run: >
+          python -m PyInstaller
+          --onefile
+          --windowed
+          --name FrenchTTS
+          --icon img\icon.ico
+          --add-data "img;img"
+          --collect-all customtkinter
+          --collect-all pystray
+          --collect-all PIL
+          --hidden-import pystray._win32
+          --hidden-import sounddevice
+          --hidden-import miniaudio
+          --hidden-import aiohttp
+          --hidden-import certifi
+          --hidden-import numpy
+          --hidden-import keyboard
+          main.py
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/FrenchTTS.exe
+          generate_release_notes: true
