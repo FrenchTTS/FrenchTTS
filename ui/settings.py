@@ -4,8 +4,8 @@ FrenchTTS — settings window.
 
 import customtkinter as ctk
 
-from constants import (APP_NAME, VOICES, _BTN_SECONDARY,
-                       fmt_rate, fmt_pitch, fmt_volume, BASE_DIR)
+from core.constants import (APP_NAME, VOICES, _BTN_SECONDARY,
+                            fmt_rate, fmt_pitch, fmt_volume, BASE_DIR)
 from ui.utils import _set_window_icon, apply_window_transparency, _safe_open
 
 

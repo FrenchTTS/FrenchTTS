@@ -3,7 +3,6 @@ FrenchTTS — main application window.
 """
 
 import asyncio
-import ctypes
 import datetime
 import json
 import os
@@ -18,14 +17,14 @@ import pystray
 import sounddevice as sd
 from PIL import Image
 
-from constants import (
+from core.constants import (
     VOICES, APP_NAME, APP_URL,
     STATUS_READY, STATUS_LOADING, STATUS_PLAYING, STATUS_ERROR,
     MAX_HISTORY, DEFAULT_SETTINGS, _BTN_SECONDARY,
     LAST_MP3, CONFIG_FILE, HISTORY_LOG,
-    fmt_rate, fmt_pitch, fmt_volume,
+    fmt_rate, fmt_pitch,
 )
-from audio import _decode_mp3
+from core.audio import _decode_mp3
 from ui.utils import (
     _get_icon_path, make_tray_image,
     _set_window_icon, apply_window_transparency,

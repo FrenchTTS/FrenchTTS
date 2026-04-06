@@ -6,7 +6,6 @@ so any UI file can import them without risk of circular imports.
 """
 
 import ctypes
-import ctypes.wintypes
 import os
 import sys
 

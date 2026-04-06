@@ -18,7 +18,7 @@ import urllib.request
 
 import customtkinter as ctk
 
-from constants import APP_NAME, APP_VERSION, GITHUB_REPO, _BTN_SECONDARY
+from core.constants import APP_NAME, APP_VERSION, GITHUB_REPO, _BTN_SECONDARY
 from ui.utils import apply_window_transparency, _set_window_icon
 
 
