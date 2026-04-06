@@ -39,6 +39,7 @@ python -m PyInstaller ^
     --hidden-import aiohttp ^
     --hidden-import certifi ^
     --hidden-import numpy ^
+    --hidden-import keyboard ^
     main.py
 
 if errorlevel 1 (
