@@ -18,25 +18,9 @@ import urllib.request
 
 import customtkinter as ctk
 
-from core.constants import APP_NAME, APP_VERSION, GITHUB_REPO, _BTN_SECONDARY
+from core.constants import APP_NAME, GITHUB_REPO, _BTN_SECONDARY
+from core.version import BUILD_ID
 from ui.utils import apply_window_transparency, _set_window_icon
-
-
-# ---------------------------------------------------------------------------
-# Version comparison
-# ---------------------------------------------------------------------------
-
-def _version_tuple(v: str) -> tuple[int, ...]:
-    """Convert a dotted version string to a comparable integer tuple.
-
-    Uses only the stdlib so no ``packaging`` dependency is needed.
-
-    Examples::
-
-        _version_tuple("1.2.3") == (1, 2, 3)
-        _version_tuple("1.10.0") > _version_tuple("1.9.0")  # True
-    """
-    return tuple(int(x) for x in v.split("."))
 
 
 # ---------------------------------------------------------------------------
@@ -242,10 +226,9 @@ class UpdaterSplash(ctk.CTk):
         """
         if "--update" in sys.argv and not getattr(sys, "frozen", False):
             time.sleep(0.6)   # mimic API round-trip
-            t = _version_tuple(APP_VERSION)
-            fake_tag = ".".join(str(x) for x in (t[:-1] + (t[-1] + 1,)))
+            fake_tag = "prod-simulated"
             self.after(0, lambda: self._status_lbl.configure(
-                text=f"Mise à jour v{fake_tag} en cours..."))
+                text=f"Mise à jour {fake_tag} en cours..."))
             self._simulate_download()
             return
 
@@ -268,29 +251,28 @@ class UpdaterSplash(ctk.CTk):
             return
 
         try:
-            tag = data["tag_name"].lstrip("v")
-            # _version_tuple raises ValueError on non-numeric segments (e.g. "nightly")
-            remote = _version_tuple(tag)
-        except (KeyError, AttributeError, ValueError):
-            # Malformed or non-semver tag — treat as up to date
+            tag        = data["tag_name"]              # e.g. "prod-4d45892"
+            release_id = tag.removeprefix("prod-")     # "4d45892"
+        except (KeyError, AttributeError):
+            # Malformed release tag — treat as up to date
             self.after(0, lambda: self._status_lbl.configure(text="À jour."))
             self.after(600, self.destroy)
             return
 
-        if remote > _version_tuple(APP_VERSION):
+        if release_id != BUILD_ID:
             asset = next(
                 (a for a in data.get("assets", [])
                  if a["name"] == f"{APP_NAME}.exe"),
                 None)
             if asset is None:
                 self.after(0, lambda: self._show_error(
-                    f"Mise à jour v{tag} disponible,\n"
+                    f"Mise à jour {tag} disponible,\n"
                     "mais le fichier est introuvable sur le serveur."))
                 return
             dl_url  = asset["browser_download_url"]
             dl_size = asset.get("size", 0)
             self.after(0, lambda: self._status_lbl.configure(
-                text=f"Mise à jour v{tag} en cours..."))
+                text=f"Mise à jour {tag} en cours..."))
             self._pending_download = (dl_url, dl_size)
             self._download(dl_url, dl_size)
             return

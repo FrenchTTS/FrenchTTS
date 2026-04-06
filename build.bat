@@ -23,6 +23,8 @@ if exist build        rmdir /s /q build
 if exist dist         rmdir /s /q dist
 if exist FrenchTTS.spec del /q FrenchTTS.spec
 
+if not exist versions mkdir versions
+
 echo Construction of the executable...
 python -m PyInstaller ^
     --onefile ^
@@ -30,9 +32,12 @@ python -m PyInstaller ^
     --name FrenchTTS ^
     --icon img\icon.ico ^
     --add-data "img;img" ^
+    --add-data "versions;versions" ^
     --collect-all customtkinter ^
     --collect-all pystray ^
     --collect-all PIL ^
+    --collect-all faster_whisper ^
+    --collect-all ctranslate2 ^
     --hidden-import pystray._win32 ^
     --hidden-import sounddevice ^
     --hidden-import miniaudio ^

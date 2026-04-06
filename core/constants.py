@@ -1,11 +1,14 @@
 """
 FrenchTTS — shared constants, paths, and formatter utilities.
 
-This module is intentionally dependency-free (stdlib ``os`` only) so every
-other module can import from it without risk of circular imports.
+This module is intentionally dependency-free (stdlib ``os`` / ``sys`` only) so
+every other module can import from it without risk of circular imports.
 """
 
 import os
+import sys
+
+from core.version import BUILD_ID
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -28,9 +31,9 @@ os.makedirs(HISTORY_DIR, exist_ok=True)
 # Application identity
 #
 # Single source of truth for the name and public URL.
-# Change APP_NAME / APP_URL here to rebrand the entire app.
-# Increment APP_VERSION before each release and push a matching git tag
-# (e.g. v1.1.0). The GitHub Actions workflow verifies they match.
+# BUILD_ID comes from core/version.py: "dev" in source, a 7-char commit SHA
+# in a frozen exe (written by the GitHub Actions workflow before building).
+# APP_VERSION_DISPLAY is shown in the copyright footer.
 # ---------------------------------------------------------------------------
 
 # Keys are the display names shown in the settings dropdown.
@@ -53,7 +56,9 @@ VOICES: dict[str, str] = {
 APP_NAME = "FrenchTTS"
 APP_URL  = "https://frenchtts.github.io"
 
-APP_VERSION = "1.0.0"
+# "prod-4d45892" when frozen (real build), "dev-latest" in development.
+APP_VERSION_DISPLAY = f"prod-{BUILD_ID}" if getattr(sys, "frozen", False) else "dev-latest"
+
 GITHUB_REPO = "FrenchTTS/FrenchTTS"  # owner/repo for the GitHub Releases API
 
 # ---------------------------------------------------------------------------
@@ -86,6 +91,7 @@ DEFAULT_SETTINGS: dict = {
     "stt_auto_restart": False, # re-trigger listening after each TTS playback
     "monitor_enabled":  False, # play TTS audio on a second output device
     "monitor_device":   "",    # empty → auto-select first non-VB-Cable output
+    "last_seen_version": "",   # BUILD_ID of the last version whose changelog was shown
 }
 
 # Ghost-style button appearance reused for secondary actions in both windows.

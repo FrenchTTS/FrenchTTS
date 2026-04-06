@@ -17,8 +17,9 @@ import pystray
 import sounddevice as sd
 from PIL import Image
 
+from core.version import BUILD_ID
 from core.constants import (
-    VOICES, APP_NAME, APP_URL,
+    VOICES, APP_NAME, APP_URL, APP_VERSION_DISPLAY,
     STATUS_READY, STATUS_LOADING, STATUS_PLAYING, STATUS_ERROR,
     STATUS_RECORDING, STATUS_TRANSCRIBING,
     MAX_HISTORY, DEFAULT_SETTINGS, _BTN_SECONDARY,
@@ -113,6 +114,7 @@ class FrenchTTSApp(ctk.CTk):
         self._input_device_map:   dict[str, int] = {}
         self.monitor_enabled_var  = ctk.BooleanVar(value=False)
         self.monitor_device_var   = ctk.StringVar()
+        self._last_seen_version: str = ""   # loaded by _load_settings
 
         # --- Boot sequence --------------------------------------------------
         self._build_ui()
@@ -149,6 +151,7 @@ class FrenchTTSApp(ctk.CTk):
         self.after(400, lambda: setattr(self, "_ready", True))
         # Delay transparency so the window is composited before DWM is touched.
         self.after(150, lambda: apply_window_transparency(self, self.opacity_var.get()))
+        self.after(800, self._check_whats_new)
 
     # --- UI -----------------------------------------------------------------
 
@@ -273,6 +276,12 @@ class FrenchTTSApp(ctk.CTk):
         link.bind("<Button-1>", lambda e: webbrowser.open(APP_URL))
         link.bind("<Enter>",    lambda e: link.configure(text_color=("gray35", "gray65")))
         link.bind("<Leave>",    lambda e: link.configure(text_color=("gray55", "gray40")))
+        ctk.CTkLabel(
+            copy_frame,
+            text=f"  {APP_VERSION_DISPLAY}",
+            text_color=("gray65", "gray35"),
+            font=ctk.CTkFont(size=10)
+        ).grid(row=0, column=2)
 
     # --- Devices ------------------------------------------------------------
 
@@ -404,6 +413,7 @@ class FrenchTTSApp(ctk.CTk):
             match = next((n for n in self._device_map if saved_mon in n), None)
             if match:
                 self.monitor_device_var.set(match)
+        self._last_seen_version = str(cfg.get("last_seen_version", ""))
 
     def _save_settings(self) -> None:
         """Persist current Tkinter var values to config.json.
@@ -428,9 +438,44 @@ class FrenchTTSApp(ctk.CTk):
                     "monitor_device":   self.monitor_device_var.get(),
                     "stt_key":          self.stt_key_var.get(),
                     "stt_auto_restart": self.stt_auto_restart_var.get(),
+                    "last_seen_version": self._last_seen_version,
                 }, f, indent=2, ensure_ascii=False)
         except OSError:
             pass
+
+    # --- What's New ---------------------------------------------------------
+
+    def _check_whats_new(self) -> None:
+        """Show the What's New dialog if the build changed since last launch."""
+        if BUILD_ID == "dev":
+            return
+        if self._last_seen_version == BUILD_ID:
+            return
+        content = self._load_changelog()
+        # Mark seen before showing — prevents double-show if the user force-kills the app
+        self._last_seen_version = BUILD_ID
+        self._save_settings()
+        if content:
+            from ui.whats_new import WhatsNewWindow
+            WhatsNewWindow(self, content)
+
+    def _load_changelog(self) -> str:
+        """Read versions/{BUILD_ID}.md and strip YAML frontmatter.  Returns "" if absent."""
+        import sys as _sys
+        base = _sys._MEIPASS if getattr(_sys, "frozen", False) \
+               else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(base, "versions", f"{BUILD_ID}.md")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+            # Strip "---\n...\n---\n" YAML frontmatter if present
+            if text.startswith("---"):
+                end = text.find("---", 3)
+                if end != -1:
+                    text = text[end + 3:].strip()
+            return text
+        except FileNotFoundError:
+            return ""
 
     # --- Replay key ---------------------------------------------------------
 

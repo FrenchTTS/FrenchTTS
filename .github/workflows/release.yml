@@ -1,24 +1,10 @@
-# Build & Release workflow
-#
-# Triggered by pushing a version tag (e.g. git tag v1.1.0 && git push origin v1.1.0).
-# Builds a self-contained FrenchTTS.exe on Windows and publishes it as a
-# GitHub Release asset so the in-app auto-updater can find it via the API.
-#
-# Release procedure for maintainers:
-#   1. Update APP_VERSION in main.py to match the new tag (without the "v").
-#   2. Commit and push.
-#   3. git tag v1.x.x && git push origin v1.x.x
-#   4. This workflow runs automatically and publishes the release.
-
 name: Build & Release
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
+  workflow_dispatch:   # triggered manually from the GitHub Actions UI
 
 permissions:
-  contents: write   # required to create GitHub Releases
+  contents: write
 
 jobs:
   build:
@@ -27,6 +13,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Get short commit SHA
+        id: ver
+        shell: bash
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Inject build version into core/version.py
+        shell: bash
+        run: printf 'BUILD_ID = "%s"\n' "${{ steps.ver.outputs.sha }}" > core/version.py
 
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
@@ -38,23 +35,10 @@ jobs:
           python -m pip install --upgrade pip --disable-pip-version-check
           python -m pip install -r requirements.txt pyinstaller --disable-pip-version-check
 
-      # Fail fast if the developer forgot to bump APP_VERSION before tagging.
-      - name: Verify APP_VERSION matches tag
-        shell: pwsh
-        run: |
-          $tag = "${{ github.ref_name }}" -replace "^v", ""
-          $content = Get-Content main.py -Raw
-          if ($content -match "APP_VERSION\s*=\s*[`"']([\d.]+)[`"']") {
-            $ver = $Matches[1]
-          } else {
-            throw "Could not find APP_VERSION in main.py"
-          }
-          if ($ver -ne $tag) {
-            throw "Tag ${{ github.ref_name }} does not match APP_VERSION = '$ver' in main.py. Update APP_VERSION and re-tag."
-          }
-          Write-Host "Version check passed: $ver"
+      - name: Ensure versions/ directory exists
+        shell: bash
+        run: mkdir -p versions
 
-      # Command mirrors build.bat exactly so local and CI builds are identical.
       - name: Build executable
         run: >
           python -m PyInstaller
@@ -63,9 +47,12 @@ jobs:
           --name FrenchTTS
           --icon img\icon.ico
           --add-data "img;img"
+          --add-data "versions;versions"
           --collect-all customtkinter
           --collect-all pystray
           --collect-all PIL
+          --collect-all faster_whisper
+          --collect-all ctranslate2
           --hidden-import pystray._win32
           --hidden-import sounddevice
           --hidden-import miniaudio
@@ -75,8 +62,21 @@ jobs:
           --hidden-import keyboard
           main.py
 
+      - name: Prepare release body
+        id: body
+        shell: bash
+        run: |
+          SHA="${{ steps.ver.outputs.sha }}"
+          if [ -f "versions/${SHA}.md" ]; then
+            cp "versions/${SHA}.md" release_body.md
+          else
+            printf "Build %s\n\nAucun changelog fourni pour cette version." "$SHA" > release_body.md
+          fi
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: "prod-${{ steps.ver.outputs.sha }}"
+          name: "FrenchTTS prod-${{ steps.ver.outputs.sha }}"
+          body_path: release_body.md
           files: dist/FrenchTTS.exe
-          generate_release_notes: true
