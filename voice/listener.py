@@ -1,10 +1,204 @@
-# voice/listener.py — futur pipeline microphone → STT → TTS
-#
-# Ce module accueillera la reconnaissance vocale (mic input → transcription
-# via Whisper ou SpeechRecognition) et le renvoi du texte transcrit vers
-# FrenchTTSApp._on_speak().
-#
-# Dépendances envisagées : openai-whisper, pyaudio ou sounddevice (entrée),
-# éventuellement faster-whisper pour les performances sur CPU.
-#
-# À implémenter ultérieurement — ce fichier est un placeholder.
+"""
+voice/listener.py — Microphone capture → faster-whisper STT pipeline.
+
+Public surface
+--------------
+STTListener(on_transcript, on_state_change, on_error)
+    .start_recording()   — open mic stream, begin buffering audio
+    .stop_recording()    — close stream, launch transcription thread
+    .cancel()            — abort recording or transcription silently
+    .is_busy             — True while recording or transcribing
+"""
+
+import threading
+
+import numpy as np
+import sounddevice as sd
+from faster_whisper import WhisperModel
+
+from core.constants import (
+    STT_MODEL_DIR, STT_MODEL_SIZE, STT_LANGUAGE,
+    STT_DEVICE, STT_COMPUTE, STT_SAMPLE_RATE, STT_CHANNELS,
+)
+
+
+# ---------------------------------------------------------------------------
+# Module-level model singleton (lazy-loaded on first dictation)
+# ---------------------------------------------------------------------------
+
+_model: "WhisperModel | None" = None
+_model_lock = threading.Lock()
+
+
+def _get_model(model_size: str = STT_MODEL_SIZE) -> WhisperModel:
+    """Return the cached WhisperModel, loading it on first call.
+
+    Thread-safe via _model_lock. The first call takes ~2–4 s on a modern CPU;
+    subsequent calls return immediately. ``download_root`` pins the model cache
+    to %APPDATA%/FrenchTTS/stt_models so it survives PyInstaller temp dirs.
+    """
+    global _model
+    with _model_lock:
+        if _model is None:
+            _model = WhisperModel(
+                model_size,
+                device=STT_DEVICE,
+                compute_type=STT_COMPUTE,
+                download_root=STT_MODEL_DIR,
+            )
+    return _model
+
+
+# ---------------------------------------------------------------------------
+# STTListener
+# ---------------------------------------------------------------------------
+
+class STTListener:
+    """Manages microphone capture and transcription as background operations.
+
+    Threading model
+    ---------------
+    - ``start_recording`` opens a ``sd.InputStream`` whose callback runs on
+      PortAudio's own thread, appending audio chunks to a list.
+    - ``stop_recording`` closes the stream and launches a daemon thread that
+      loads the model (once), transcribes, and invokes the callbacks.
+    - All three callbacks are called from background threads — callers must
+      marshal them to the Tkinter main thread via ``after(0, ...)``.
+
+    Parameters
+    ----------
+    on_transcript : callable(str)
+        Delivered when transcription succeeds with a non-empty result.
+    on_state_change : callable(str)
+        Delivers "idle", "recording", or "transcribing" on every state change.
+    on_error : callable(str)
+        Delivers a human-readable French error message on any failure.
+    """
+
+    def __init__(self, on_transcript, on_state_change, on_error):
+        self._on_transcript   = on_transcript
+        self._on_state_change = on_state_change
+        self._on_error        = on_error
+
+        self._state           = "idle"   # "idle" | "recording" | "transcribing"
+        self._audio_chunks:   list[np.ndarray] = []
+        self._stream:         "sd.InputStream | None" = None
+        self._cancel_flag     = threading.Event()
+
+    # --- Public API (called from the main thread) ----------------------------
+
+    @property
+    def is_busy(self) -> bool:
+        return self._state != "idle"
+
+    def start_recording(self) -> None:
+        """Open a sounddevice InputStream and begin buffering audio chunks.
+
+        Uses the default input device (index=None). The callback appends
+        float32 frames into _audio_chunks; concatenation happens later in
+        the transcription worker right before the Whisper call.
+        """
+        if self._state != "idle":
+            return
+        self._cancel_flag.clear()
+        self._audio_chunks = []
+        try:
+            self._stream = sd.InputStream(
+                samplerate=STT_SAMPLE_RATE,
+                channels=STT_CHANNELS,
+                dtype="float32",
+                callback=self._audio_callback,
+            )
+            self._stream.start()
+        except Exception as exc:
+            self._on_error(f"Microphone inaccessible : {exc}")
+            return
+        self._set_state("recording")
+
+    def stop_recording(self) -> None:
+        """Close the stream and launch the transcription daemon thread."""
+        if self._state != "recording":
+            return
+        self._close_stream()
+        self._set_state("transcribing")
+        threading.Thread(target=self._transcribe_worker, daemon=True).start()
+
+    def cancel(self) -> None:
+        """Abort recording or transcription without producing a transcript."""
+        self._cancel_flag.set()
+        self._close_stream()
+        if self._state != "idle":
+            self._set_state("idle")
+
+    # --- Internal helpers ----------------------------------------------------
+
+    def _audio_callback(self, indata: np.ndarray, frames, time, status) -> None:
+        """PortAudio stream callback — runs on PortAudio's internal thread.
+
+        ``indata`` is a (frames, channels) float32 view. We copy it before
+        appending because sounddevice reuses the underlying buffer on every call.
+        """
+        self._audio_chunks.append(indata.copy())
+
+    def _close_stream(self) -> None:
+        if self._stream is not None:
+            try:
+                self._stream.stop()
+                self._stream.close()
+            except Exception:
+                pass
+            self._stream = None
+
+    def _set_state(self, new_state: str) -> None:
+        self._state = new_state
+        self._on_state_change(new_state)
+
+    def _transcribe_worker(self) -> None:
+        """Concatenate audio buffers, run Whisper, deliver the transcript.
+
+        Runs entirely on a daemon thread. None of the calls here touch
+        Tkinter — all callbacks must be marshalled by the caller via after(0).
+        """
+        if self._cancel_flag.is_set():
+            self._set_state("idle")
+            return
+
+        if not self._audio_chunks:
+            self._set_state("idle")
+            self._on_error("Aucun audio capturé.")
+            return
+
+        # Whisper expects a 1-D float32 array at STT_SAMPLE_RATE
+        audio = np.concatenate(self._audio_chunks, axis=0).flatten()
+
+        try:
+            model = _get_model()
+        except Exception as exc:
+            self._set_state("idle")
+            self._on_error(f"Impossible de charger le modèle STT : {exc}")
+            return
+
+        if self._cancel_flag.is_set():
+            self._set_state("idle")
+            return
+
+        try:
+            segments, _info = model.transcribe(
+                audio,
+                language=STT_LANGUAGE,
+                beam_size=5,
+                vad_filter=True,
+                vad_parameters={"min_silence_duration_ms": 300},
+            )
+            text = " ".join(seg.text.strip() for seg in segments).strip()
+        except Exception as exc:
+            self._set_state("idle")
+            self._on_error(f"Erreur de transcription : {exc}")
+            return
+
+        self._set_state("idle")
+
+        if text:
+            self._on_transcript(text)
+        else:
+            self._on_error("Aucun texte détecté.")

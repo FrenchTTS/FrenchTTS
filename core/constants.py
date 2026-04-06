@@ -38,15 +38,16 @@ os.makedirs(HISTORY_DIR, exist_ok=True)
 # Run ``edge-tts --list-voices | grep fr-FR`` to discover additional voices.
 VOICES: dict[str, str] = {
     # Female
-    "Denise (fr-FR)":  "fr-FR-DeniseNeural",
-    "Eloise (fr-FR)":  "fr-FR-EloiseNeural",
+    "FR - Vivienne": "fr-FR-VivienneMultilingualNeural",
+    "FR - Denise":  "fr-FR-DeniseNeural",
+    "FR - Eloise":  "fr-FR-EloiseNeural",
+    "FR-BE - Charline": "fr-BE-CharlineNeural",
+    "FR-CA - Sylvie": "fr-CA-SylvieNeural",
+    "FR-CH - Ariane": "fr-CH-ArianeNeural",
+
     # Male
-    "Henri (fr-FR)":   "fr-FR-HenriNeural",
-    "Alain (fr-FR)":   "fr-FR-AlainNeural",
-    "Claude (fr-FR)":  "fr-FR-ClaudeNeural",
-    "Jerome (fr-FR)":  "fr-FR-JeromeNeural",
-    "Maurice (fr-FR)": "fr-FR-MauriceNeural",
-    "Yves (fr-FR)":    "fr-FR-YvesNeural",
+    "FR - Remy": "fr-FR-RemyMultilingualNeural",
+    "FR-CA - Antoine": "fr-CA-AntoineNeural"
 }
 
 APP_NAME = "FrenchTTS"
@@ -76,8 +77,9 @@ DEFAULT_SETTINGS: dict = {
     "volume":     100,   # 0–100; converted to a signed edge-tts offset at runtime
     "pitch":      0,     # Hz offset, e.g. -10 = 10 Hz lower
     "opacity":    0.93,  # 1.0 = fully opaque (acrylic disabled)
-    "replay_key": "F2",  # Tkinter keysym — also used as keyboard lib hotkey
-    "stop_key":   "F3",  # same format; triggers Arrêter globally
+    "replay_key":    "F2",     # Tkinter keysym — also used as keyboard lib hotkey
+    "stop_key":      "F3",     # same format; triggers Arrêter globally
+    "stt_model_size": "small", # faster-whisper model size
 }
 
 # Ghost-style button appearance reused for secondary actions in both windows.
@@ -104,3 +106,20 @@ def _fmt_signed(v: int, unit: str) -> str:
 fmt_rate   = lambda v: _fmt_signed(int(v), "%")
 fmt_pitch  = lambda v: _fmt_signed(int(v), "Hz")
 fmt_volume = lambda v: f"{int(v)}%"
+
+# ---------------------------------------------------------------------------
+# STT (Speech-to-Text) — faster-whisper configuration
+# ---------------------------------------------------------------------------
+
+STT_MODEL_DIR   = os.path.join(BASE_DIR, "stt_models")
+STT_MODEL_SIZE  = "small"   # "tiny" | "base" | "small"
+STT_LANGUAGE    = "fr"
+STT_DEVICE      = "cpu"     # "cpu" only; "cuda" would need torch
+STT_COMPUTE     = "int8"    # fastest on CPU with negligible WER loss
+STT_SAMPLE_RATE = 16000     # Hz — Whisper's native input rate
+STT_CHANNELS    = 1         # mono
+
+os.makedirs(STT_MODEL_DIR, exist_ok=True)
+
+STATUS_RECORDING    = "Enregistrement..."
+STATUS_TRANSCRIBING = "Transcription..."

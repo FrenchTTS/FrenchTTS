@@ -7,13 +7,13 @@ Build with ``build.bat`` to produce a self-contained FrenchTTS.exe.
 
 Module layout
 -------------
-constants.py      — paths, voices, settings defaults, formatters
-audio.py          — MP3 → PCM decoding
+core/constants.py      — paths, voices, settings defaults, formatters
+core/audio.py          — MP3 → PCM decoding
 ui/utils.py       — window icons, acrylic blur, tray image
 ui/updater.py     — UpdaterSplash, _apply_update
 ui/settings.py    — SettingsWindow
 ui/app.py         — FrenchTTSApp (main window + TTS pipeline)
-voice/            — future mic → STT → TTS pipeline
+voice/listener.py — mic capture → faster-whisper STT → TTS pipeline
 """
 
 import sys

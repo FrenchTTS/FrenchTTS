@@ -20,6 +20,7 @@ from PIL import Image
 from core.constants import (
     VOICES, APP_NAME, APP_URL,
     STATUS_READY, STATUS_LOADING, STATUS_PLAYING, STATUS_ERROR,
+    STATUS_RECORDING, STATUS_TRANSCRIBING,
     MAX_HISTORY, DEFAULT_SETTINGS, _BTN_SECONDARY,
     LAST_MP3, CONFIG_FILE, HISTORY_LOG,
     fmt_rate, fmt_pitch,
@@ -30,6 +31,7 @@ from ui.utils import (
     _set_window_icon, apply_window_transparency,
 )
 from ui.settings import SettingsWindow
+from voice.listener import STTListener, _get_model
 
 
 class FrenchTTSApp(ctk.CTk):
@@ -71,6 +73,10 @@ class FrenchTTSApp(ctk.CTk):
         self._hk_replay     = None # keyboard-lib hotkey handle for global replay
         self._hk_stop       = None # keyboard-lib hotkey handle for global stop
 
+        # --- STT state ------------------------------------------------------
+        self._stt_state = "idle"   # "idle" | "recording" | "transcribing"
+        self._listener: STTListener | None = None
+
         # --- Text input history (Up/Down navigation) ------------------------
         # Mirrors the behaviour of a shell: Up walks backwards through
         # previously spoken texts, Down returns toward the present.
@@ -99,6 +105,15 @@ class FrenchTTSApp(ctk.CTk):
         self.geometry(f"490x{self.winfo_reqheight()}")
         self.resizable(False, False)
         _set_window_icon(self)
+
+        self._listener = STTListener(
+            on_transcript=self._on_stt_transcript,
+            on_state_change=self._on_stt_state_change,
+            on_error=self._on_stt_error,
+        )
+        # Warm up the Whisper model in the background so the first dictation
+        # doesn't stall. Runs silently; any failure is deferred to first use.
+        threading.Thread(target=_get_model, daemon=True).start()
 
         self._populate_devices()
         self._load_settings()        # overwrites defaults with saved prefs
@@ -190,6 +205,14 @@ class FrenchTTSApp(ctk.CTk):
             **_BTN_SECONDARY,
             command=self._open_settings
         ).grid(row=1, column=1, sticky="ew", padx=(3, 0))
+
+        # Row 2: microphone dictation (full-width, ghost style)
+        self.mic_btn = ctk.CTkButton(
+            btn_row, text="🎙  Dicter", height=33,
+            font=ctk.CTkFont(size=13),
+            **_BTN_SECONDARY,
+            command=self._on_mic_toggle)
+        self.mic_btn.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 0))
 
         # Separator
         ctk.CTkFrame(self, height=1, corner_radius=0,
@@ -501,6 +524,65 @@ class FrenchTTSApp(ctk.CTk):
         self._set_status(STATUS_PLAYING)
         self._run_worker(self._replay_async)
 
+    # --- STT / Microphone ---------------------------------------------------
+
+    def _on_mic_toggle(self) -> None:
+        """Toggle between recording and stop-to-transcribe.
+
+        Blocked while TTS is playing. The transcribing state disables the
+        button itself, so only idle→recording and recording→transcribing
+        transitions are reachable here.
+        """
+        if self._tts_thread and self._tts_thread.is_alive():
+            return
+        if self._stt_state == "idle":
+            self._listener.start_recording()
+        elif self._stt_state == "recording":
+            self._listener.stop_recording()
+
+    def _on_stt_state_change(self, new_state: str) -> None:
+        """Marshal STTListener state change to the main thread."""
+        self.after(0, lambda s=new_state: self._apply_stt_state(s))
+
+    def _apply_stt_state(self, state: str) -> None:
+        """Apply STT state to the UI — must run on the main thread."""
+        self._stt_state = state
+        if state == "idle":
+            self.mic_btn.configure(
+                text="🎙  Dicter",
+                state="normal",
+                fg_color=_BTN_SECONDARY["fg_color"],
+                hover_color=_BTN_SECONDARY["hover_color"],
+            )
+            if not (self._tts_thread and self._tts_thread.is_alive()):
+                self._restore_ui()
+        elif state == "recording":
+            self.mic_btn.configure(
+                text="⏹  Stop",
+                state="normal",
+                fg_color="#1a5c1a",
+                hover_color="#154a15",
+            )
+            self.speak_btn.configure(state="disabled")
+            self.replay_btn.configure(state="disabled")
+            self._set_status(STATUS_RECORDING)
+        elif state == "transcribing":
+            self.mic_btn.configure(state="disabled")
+            self._set_status(STATUS_TRANSCRIBING)
+
+    def _on_stt_transcript(self, text: str) -> None:
+        """Receive transcript from background thread — marshal to main thread."""
+        self.after(0, lambda t=text: self._apply_transcript(t))
+
+    def _apply_transcript(self, text: str) -> None:
+        """Insert transcript into textbox and trigger TTS — main thread only."""
+        self._set_textbox(text)
+        self._on_speak()
+
+    def _on_stt_error(self, message: str) -> None:
+        """Show STT errors in the status bar — marshal to main thread."""
+        self.after(0, lambda m=message: self._set_status(f"STT: {m}"))
+
     def _shutdown(self) -> None:
         """Save state and destroy the application.
 
@@ -525,6 +607,8 @@ class FrenchTTSApp(ctk.CTk):
             pass
         self._stop_event.set()
         sd.stop()
+        if self._listener:
+            self._listener.cancel()
         if self._tray_icon:
             self._tray_icon.stop()
         self.after(0, self.destroy)
