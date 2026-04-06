@@ -1,0 +1,106 @@
+"""
+FrenchTTS — shared constants, paths, and formatter utilities.
+
+This module is intentionally dependency-free (stdlib ``os`` only) so every
+other module can import from it without risk of circular imports.
+"""
+
+import os
+
+# ---------------------------------------------------------------------------
+# Paths
+#
+# All user data lives under %APPDATA%\FrenchTTS so the app never writes
+# next to its own executable (important for UAC-restricted installs and
+# the PyInstaller bundle, which may unpack to Program Files).
+# ---------------------------------------------------------------------------
+
+APPDATA     = os.environ.get("APPDATA", os.path.expanduser("~"))
+BASE_DIR    = os.path.join(APPDATA, "FrenchTTS")
+HISTORY_DIR = os.path.join(BASE_DIR, "history")
+LAST_MP3    = os.path.join(HISTORY_DIR, "last.mp3")   # overwritten each generation
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+HISTORY_LOG = os.path.join(HISTORY_DIR, "lasts.log")  # JSON array of past texts
+os.makedirs(BASE_DIR,    exist_ok=True)
+os.makedirs(HISTORY_DIR, exist_ok=True)
+
+# ---------------------------------------------------------------------------
+# Application identity
+#
+# Single source of truth for the name and public URL.
+# Change APP_NAME / APP_URL here to rebrand the entire app.
+# Increment APP_VERSION before each release and push a matching git tag
+# (e.g. v1.1.0). The GitHub Actions workflow verifies they match.
+# ---------------------------------------------------------------------------
+
+# Keys are the display names shown in the settings dropdown.
+# Values are passed verbatim to edge_tts.Communicate as the ``voice`` param.
+# Run ``edge-tts --list-voices | grep fr-FR`` to discover additional voices.
+VOICES: dict[str, str] = {
+    # Female
+    "Denise (fr-FR)":  "fr-FR-DeniseNeural",
+    "Eloise (fr-FR)":  "fr-FR-EloiseNeural",
+    # Male
+    "Henri (fr-FR)":   "fr-FR-HenriNeural",
+    "Alain (fr-FR)":   "fr-FR-AlainNeural",
+    "Claude (fr-FR)":  "fr-FR-ClaudeNeural",
+    "Jerome (fr-FR)":  "fr-FR-JeromeNeural",
+    "Maurice (fr-FR)": "fr-FR-MauriceNeural",
+    "Yves (fr-FR)":    "fr-FR-YvesNeural",
+}
+
+APP_NAME = "FrenchTTS"
+APP_URL  = "https://frenchtts.github.io"
+
+APP_VERSION = "1.0.0"
+GITHUB_REPO = "FrenchTTS/FrenchTTS"  # owner/repo for the GitHub Releases API
+
+# ---------------------------------------------------------------------------
+# UI state
+# ---------------------------------------------------------------------------
+
+STATUS_READY   = "Prêt"
+STATUS_LOADING = "Chargement..."
+STATUS_PLAYING = "En cours..."
+STATUS_ERROR   = "Erreur"
+
+# Maximum number of past texts kept in memory and persisted to lasts.log.
+MAX_HISTORY = 100
+
+# Merged into the on-disk config at load time so missing keys always have
+# a safe fallback without wiping the user's existing preferences.
+DEFAULT_SETTINGS: dict = {
+    "voice":      list(VOICES.keys())[0],
+    "device":     "",    # empty → auto-select (prefers VB-Cable if found)
+    "rate":       0,     # percent offset, e.g. +20 = 20% faster
+    "volume":     100,   # 0–100; converted to a signed edge-tts offset at runtime
+    "pitch":      0,     # Hz offset, e.g. -10 = 10 Hz lower
+    "opacity":    0.93,  # 1.0 = fully opaque (acrylic disabled)
+    "replay_key": "F2",  # Tkinter keysym — also used as keyboard lib hotkey
+    "stop_key":   "F3",  # same format; triggers Arrêter globally
+}
+
+# Ghost-style button appearance reused for secondary actions in both windows.
+# Stored as a dict so it can be unpacked with ** into CTkButton calls.
+_BTN_SECONDARY = dict(
+    fg_color=("gray75", "#2c2c2c"),
+    hover_color=("gray65", "#383838"),
+    border_width=1,
+    border_color=("gray60", "#454545"),
+)
+
+# ---------------------------------------------------------------------------
+# Formatters
+#
+# edge-tts expects signed string params like "+20%", "-10Hz".
+# These converters are shared between SettingsWindow (live slider labels)
+# and FrenchTTSApp (building the Communicate call).
+# ---------------------------------------------------------------------------
+
+def _fmt_signed(v: int, unit: str) -> str:
+    """Return a signed string such as '+20%' or '-10Hz'."""
+    return f"+{v}{unit}" if v >= 0 else f"{v}{unit}"
+
+fmt_rate   = lambda v: _fmt_signed(int(v), "%")
+fmt_pitch  = lambda v: _fmt_signed(int(v), "Hz")
+fmt_volume = lambda v: f"{int(v)}%"
