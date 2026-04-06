@@ -166,9 +166,39 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self._separator(row=13)
 
+        # --- Monitoring section ---------------------------------------------
+        # Plays TTS audio on a second output device (e.g. headphones) while
+        # the primary stream sends to VB-Cable (or whichever device is selected
+        # above). Both streams run in parallel via separate sounddevice outputs.
+
+        # Row 14: enable/disable toggle
+        ctk.CTkLabel(self, text="Monitoring :").grid(row=14, column=0, **LBL)
+        mon_sw_frame = ctk.CTkFrame(self, fg_color="transparent")
+        mon_sw_frame.grid(row=14, column=1, columnspan=2, sticky="w", **CTL)
+        ctk.CTkSwitch(
+            mon_sw_frame, text="Écouter dans le casque",
+            variable=self._app.monitor_enabled_var,
+            onvalue=True, offvalue=False,
+        ).grid(row=0, column=0, sticky="w")
+
+        # Row 15: output device for the monitor stream.
+        # ↺ refreshes the list so a USB headset plugged in after launch appears.
+        ctk.CTkLabel(self, text="Casque :").grid(row=15, column=0, **LBL)
+        self.monitor_device_menu = ctk.CTkOptionMenu(
+            self, variable=self._app.monitor_device_var, values=[])
+        self.monitor_device_menu.grid(row=15, column=1, sticky="ew",
+                                      padx=(0, 4), pady=7)
+        ctk.CTkButton(self, text="↺", width=32,
+                      command=lambda: self._app._populate_devices(
+                          widget=self.monitor_device_menu)
+                      ).grid(row=15, column=2, padx=(0, 16), pady=7)
+        self._app._populate_devices(widget=self.monitor_device_menu)
+
+        self._separator(row=16)
+
         # --- Footer buttons -------------------------------------------------
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.grid(row=14, column=0, columnspan=3, pady=(10, 14))
+        btn_frame.grid(row=17, column=0, columnspan=3, pady=(10, 14))
         ctk.CTkButton(btn_frame, text="Dossier config", width=140,
                       **_BTN_SECONDARY,
                       command=lambda: _safe_open(BASE_DIR)

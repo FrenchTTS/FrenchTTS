@@ -101,9 +101,11 @@ class FrenchTTSApp(ctk.CTk):
         self.opacity_var      = ctk.DoubleVar(value=0.93)
         self.replay_key_var   = ctk.StringVar(value="F2")
         self.stop_key_var     = ctk.StringVar(value="F3")
-        self.stt_enabled_var  = ctk.BooleanVar(value=True)
-        self.stt_input_var    = ctk.StringVar()
+        self.stt_enabled_var    = ctk.BooleanVar(value=True)
+        self.stt_input_var      = ctk.StringVar()
         self._input_device_map: dict[str, int] = {}
+        self.monitor_enabled_var = ctk.BooleanVar(value=False)
+        self.monitor_device_var  = ctk.StringVar()
 
         # --- Boot sequence --------------------------------------------------
         self._build_ui()
@@ -298,13 +300,17 @@ class FrenchTTSApp(ctk.CTk):
         The display name includes the index so users can distinguish devices
         with identical names (e.g. two instances of the same USB audio chip).
 
-        Auto-selection priority:
+        Auto-selection priority for the primary device:
           1. Keep the current selection if it is still valid.
           2. Prefer any device whose name contains "CABLE" (VB-Cable).
           3. Fall back to the first available output device.
 
-        ``widget`` is the target CTkOptionMenu to update. If None and the
-        settings window is open, its device_menu is updated instead.
+        Auto-selection for the monitor device (headphones) is the inverse:
+          prefer the first non-VB-Cable device so it defaults to real speakers.
+
+        ``widget`` is the explicit CTkOptionMenu to update (from a ↺ button
+        click). If None, all output dropdowns in the open settings window are
+        refreshed simultaneously.
         """
         self._device_map.clear()
         names = []
@@ -314,17 +320,29 @@ class FrenchTTSApp(ctk.CTk):
                 self._device_map[name] = idx
                 names.append(name)
 
+        # Primary: prefer VB-Cable
         if self.device_var.get() not in self._device_map:
             default = next((n for n in names if "CABLE" in n.upper()),
                            names[0] if names else "")
             if default:
                 self.device_var.set(default)
 
-        target = widget or (
-            self._settings_win.device_menu
-            if self._settings_win and self._settings_win.winfo_exists() else None)
-        if target:
-            target.configure(values=names or ["Aucun périphérique"])
+        # Monitor: prefer first non-VB-Cable (real speakers/headphones)
+        if self.monitor_device_var.get() not in self._device_map:
+            default_mon = next((n for n in names if "CABLE" not in n.upper()),
+                               names[0] if names else "")
+            if default_mon:
+                self.monitor_device_var.set(default_mon)
+
+        if widget:
+            widget.configure(values=names or ["Aucun périphérique"])
+        else:
+            sw = self._settings_win
+            if sw and sw.winfo_exists():
+                if hasattr(sw, "device_menu"):
+                    sw.device_menu.configure(values=names or ["Aucun périphérique"])
+                if hasattr(sw, "monitor_device_menu"):
+                    sw.monitor_device_menu.configure(values=names or ["Aucun périphérique"])
 
     # --- Config -------------------------------------------------------------
 
@@ -368,6 +386,13 @@ class FrenchTTSApp(ctk.CTk):
         if not self.stt_enabled_var.get():
             self.mic_btn.grid_remove()
 
+        self.monitor_enabled_var.set(bool(cfg.get("monitor_enabled", False)))
+        saved_mon = cfg.get("monitor_device", "")
+        if saved_mon:
+            match = next((n for n in self._device_map if saved_mon in n), None)
+            if match:
+                self.monitor_device_var.set(match)
+
     def _save_settings(self) -> None:
         """Persist current Tkinter var values to config.json.
 
@@ -387,6 +412,8 @@ class FrenchTTSApp(ctk.CTk):
                     "stop_key":         self.stop_key_var.get(),
                     "stt_enabled":      self.stt_enabled_var.get(),
                     "stt_input_device": self.stt_input_var.get(),
+                    "monitor_enabled":  self.monitor_enabled_var.get(),
+                    "monitor_device":   self.monitor_device_var.get(),
                 }, f, indent=2, ensure_ascii=False)
         except OSError:
             pass
@@ -872,23 +899,57 @@ class FrenchTTSApp(ctk.CTk):
         await self._play_pcm(pcm, samplerate)
 
     async def _play_pcm(self, pcm: np.ndarray, samplerate: int) -> None:
-        """Play a PCM array non-blocking and poll until the stream finishes.
+        """Play PCM on the primary device and optionally on the monitor device.
 
-        ``sd.play`` is non-blocking so we loop with a 50 ms sleep, checking
-        _stop_event each iteration. This keeps the thread responsive to stop
-        requests while avoiding the CPU overhead of a busy-wait. 50 ms was
-        chosen as a balance between responsiveness and overhead; it means the
-        user waits at most 50 ms after clicking Arrêter for audio to cut out.
+        Primary stream: sd.play() (non-blocking, existing behaviour).
+        Monitor stream: a separate sd.OutputStream whose write() runs on a
+        daemon thread so it never blocks the asyncio loop. The two streams are
+        started as close together as possible to stay in sync; any small offset
+        (~10 ms) is imperceptible for monitoring purposes.
+
+        The polling loop checks _stop_event every 50 ms. When it fires:
+          - sd.stop() kills the primary stream.
+          - monitor_stream.abort() kills the monitor stream (abort() is
+            more forceful than stop() and interrupts a blocking write()).
 
         ``sd.get_stream().active`` raises RuntimeError if no stream exists
-        (e.g. device disconnected mid-playback); the except clause treats that
-        as a clean end of playback.
+        (e.g. device disconnected mid-playback); the except treats that as
+        a clean end of playback.
         """
-        device_idx = self._device_map.get(self.device_var.get())
-        sd.play(pcm, samplerate=samplerate, device=device_idx, blocking=False)
+        primary_idx = self._device_map.get(self.device_var.get())
+        sd.play(pcm, samplerate=samplerate, device=primary_idx, blocking=False)
+
+        # --- Optional monitor stream ----------------------------------------
+        monitor_stream = None
+        if self.monitor_enabled_var.get():
+            m_idx = self._device_map.get(self.monitor_device_var.get())
+            if m_idx is not None and m_idx != primary_idx:
+                try:
+                    monitor_stream = sd.OutputStream(
+                        samplerate=samplerate, device=m_idx,
+                        channels=1, dtype="int16")
+                    monitor_stream.start()
+                    threading.Thread(
+                        target=self._write_monitor_pcm,
+                        args=(monitor_stream, pcm),
+                        daemon=True).start()
+                except Exception:
+                    if monitor_stream is not None:
+                        try:
+                            monitor_stream.close()
+                        except Exception:
+                            pass
+                    monitor_stream = None
+
+        # --- Poll until primary finishes or stop is requested ---------------
         while True:
             if self._stop_event.is_set():
                 sd.stop()
+                if monitor_stream is not None:
+                    try:
+                        monitor_stream.abort()
+                    except Exception:
+                        pass
                 return
             try:
                 if not sd.get_stream().active:
@@ -896,3 +957,24 @@ class FrenchTTSApp(ctk.CTk):
             except Exception:
                 break
             await asyncio.sleep(0.05)
+
+        # Primary finished naturally — clean up monitor
+        if monitor_stream is not None:
+            try:
+                monitor_stream.stop()
+                monitor_stream.close()
+            except Exception:
+                pass
+
+    def _write_monitor_pcm(self, stream: "sd.OutputStream", pcm: np.ndarray) -> None:
+        """Write PCM to the monitor OutputStream — runs on a daemon thread.
+
+        write() blocks until all data is consumed by PortAudio. If the stream
+        is aborted externally (via abort() from the stop handler), a
+        PortAudioError is raised here and silently swallowed so the thread
+        exits cleanly without printing a traceback.
+        """
+        try:
+            stream.write(pcm)
+        except Exception:
+            pass

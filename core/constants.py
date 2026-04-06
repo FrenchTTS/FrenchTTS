@@ -80,8 +80,10 @@ DEFAULT_SETTINGS: dict = {
     "replay_key":      "F2",     # Tkinter keysym — also used as keyboard lib hotkey
     "stop_key":        "F3",     # same format; triggers Arrêter globally
     "stt_model_size":  "small",  # faster-whisper model size
-    "stt_enabled":     True,     # show/hide the Micro → TTS button
-    "stt_input_device": "",      # empty → system default microphone
+    "stt_enabled":      True,   # show/hide the Micro → TTS button
+    "stt_input_device": "",    # empty → system default microphone
+    "monitor_enabled":  False, # play TTS audio on a second output device
+    "monitor_device":   "",    # empty → auto-select first non-VB-Cable output
 }
 
 # Ghost-style button appearance reused for secondary actions in both windows.
