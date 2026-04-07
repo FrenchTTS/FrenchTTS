@@ -4,7 +4,7 @@ FrenchTTS — What's New dialog shown once after an update.
 
 import customtkinter as ctk
 
-from core.constants import APP_NAME, _BTN_SECONDARY
+from core.constants import APP_NAME
 from ui.utils import _set_window_icon, apply_window_transparency
 
 

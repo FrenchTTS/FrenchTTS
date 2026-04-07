@@ -56,8 +56,14 @@ VOICES: dict[str, str] = {
 APP_NAME = "FrenchTTS"
 APP_URL  = "https://frenchtts.github.io"
 
-# "prod-4d45892" when frozen (real build), "dev-latest" in development.
-APP_VERSION_DISPLAY = f"prod-{BUILD_ID}" if getattr(sys, "frozen", False) else "dev-latest"
+# "prod-4d45892" in a frozen release build, "dev-latest" in all other cases.
+# The BUILD_ID != "dev" guard prevents "prod-dev" appearing if someone runs
+# build.bat without git (or git is unavailable) and the SHA injection falls back.
+APP_VERSION_DISPLAY = (
+    f"prod-{BUILD_ID}"
+    if getattr(sys, "frozen", False) and BUILD_ID != "dev"
+    else "dev-latest"
+)
 
 GITHUB_REPO = "FrenchTTS/FrenchTTS"  # owner/repo for the GitHub Releases API
 

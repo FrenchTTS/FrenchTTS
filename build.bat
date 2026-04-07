@@ -25,6 +25,14 @@ if exist FrenchTTS.spec del /q FrenchTTS.spec
 
 if not exist versions mkdir versions
 
+:: Inject the current git SHA into core/version.py so the exe shows
+:: "prod-XXXXXXX" instead of "prod-dev".  Falls back to "dev" gracefully
+:: if git is unavailable (the constants.py guard will then show "dev-latest").
+for /f "delims=" %%i in ('git rev-parse --short HEAD 2^>nul') do set GIT_SHA=%%i
+if not defined GIT_SHA set GIT_SHA=dev
+(echo BUILD_ID = "%GIT_SHA%") > core\version.py
+echo Build ID: %GIT_SHA%
+
 echo Construction of the executable...
 python -m PyInstaller ^
     --onefile ^
@@ -47,7 +55,12 @@ python -m PyInstaller ^
     --hidden-import keyboard ^
     main.py
 
-if errorlevel 1 (
+set BUILD_RESULT=%errorlevel%
+
+:: Always restore core/version.py so the working tree stays clean.
+(echo BUILD_ID = "dev") > core\version.py
+
+if %BUILD_RESULT% neq 0 (
     echo.
     echo ERROR during build. See logs above.
     pause
@@ -55,6 +68,6 @@ if errorlevel 1 (
 )
 
 echo.
-echo Build complete. Executable: dist\FrenchTTS.exe
+echo Build complete. Executable: dist\FrenchTTS.exe  ^(build ID: %GIT_SHA%^)
 echo Config saved in: %%APPDATA%%\FrenchTTS\config.json
 pause
