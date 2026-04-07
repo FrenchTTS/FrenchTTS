@@ -713,6 +713,8 @@ class FrenchTTSApp(ctk.CTk):
     def _on_stt_toggle(self) -> None:
         """Show or hide the mic button when STT is enabled/disabled in settings.
 
+        Recomputes the window height after the grid reflows so no blank space
+        is left behind when the button is hidden.
         When disabling, any active recording is cancelled immediately.
         When enabling, the button label is refreshed (key may have changed
         while the button was hidden) before restoring its grid position.
@@ -724,6 +726,8 @@ class FrenchTTSApp(ctk.CTk):
             if self._listener:
                 self._listener.cancel()
             self.mic_btn.grid_remove()
+        self.update_idletasks()
+        self.geometry(f"490x{self.winfo_reqheight()}")
 
     def _on_stt_state_change(self, new_state: str) -> None:
         """Marshal STTListener state change to the main thread via after(0)."""

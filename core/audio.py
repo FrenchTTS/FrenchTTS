@@ -22,7 +22,11 @@ def _decode_mp3(data: bytes) -> tuple[np.ndarray, int]:
 
 
 def trim_silence(pcm: np.ndarray, threshold: int = 200) -> np.ndarray:
-    """Strip leading and trailing silence from int16 PCM.
+    """Strip leading silence from int16 PCM.
+
+    Only the leading silence is removed. The natural trailing silence from
+    edge-tts is preserved so the hardware buffer has time to drain and the
+    last phoneme is not clipped.
 
     threshold: amplitude in int16 units (0–32 768).  200 ≈ −44 dB, which
     catches the digital silence padding edge-tts prepends to every stream
@@ -31,7 +35,7 @@ def trim_silence(pcm: np.ndarray, threshold: int = 200) -> np.ndarray:
     above = np.where(np.abs(pcm) > threshold)[0]
     if not above.size:
         return pcm
-    return pcm[above[0]:above[-1] + 1]
+    return pcm[above[0]:]
 
 
 def save_mp3(path: str, data: bytes) -> None:
