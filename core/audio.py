@@ -1,8 +1,5 @@
 """
-FrenchTTS — audio decoding utilities.
-
-Kept separate from the UI so future audio helpers (e.g. microphone capture,
-PCM resampling) have a natural home without growing the UI modules.
+FrenchTTS — audio decoding and PCM utilities.
 """
 
 import miniaudio
@@ -22,3 +19,25 @@ def _decode_mp3(data: bytes) -> tuple[np.ndarray, int]:
         nchannels=1,
         sample_rate=24000)
     return np.frombuffer(decoded.samples, dtype=np.int16), decoded.sample_rate
+
+
+def trim_silence(pcm: np.ndarray, threshold: int = 200) -> np.ndarray:
+    """Strip leading and trailing silence from int16 PCM.
+
+    threshold: amplitude in int16 units (0–32 768).  200 ≈ −44 dB, which
+    catches the digital silence padding edge-tts prepends to every stream
+    without clipping soft speech onsets.
+    """
+    above = np.where(np.abs(pcm) > threshold)[0]
+    if not above.size:
+        return pcm
+    return pcm[above[0]:above[-1] + 1]
+
+
+def save_mp3(path: str, data: bytes) -> None:
+    """Write raw MP3 bytes to *path*, silently ignoring OS errors."""
+    try:
+        with open(path, "wb") as f:
+            f.write(data)
+    except OSError:
+        pass

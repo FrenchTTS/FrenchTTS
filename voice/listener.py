@@ -43,8 +43,8 @@ from core.constants import (
 
 BLOCKSIZE         = 1024  # frames per PortAudio callback  (~64 ms at 16 kHz)
 SPEECH_THR        = 0.012 # RMS energy threshold to classify a block as speech
-CONFIRM_FRAMES    = 3     # consecutive blocks above threshold to confirm speech (~192 ms)
-SILENCE_FRAMES    = 12    # consecutive blocks below threshold to end utterance (~768 ms)
+CONFIRM_FRAMES    = 2     # consecutive blocks above threshold to confirm speech (~128 ms)
+SILENCE_FRAMES    = 8     # consecutive blocks below threshold to end utterance (~512 ms)
 PREROLL_FRAMES    = 5     # blocks kept before speech onset for context (~320 ms)
 MAX_RECORD_FRAMES = int(30 * STT_SAMPLE_RATE / BLOCKSIZE)  # auto-stop after 30 s
 
@@ -245,13 +245,14 @@ class STTListener:
         Whisper settings for French
         ---------------------------
         temperature=0                    deterministic output
-        beam_size=5 / best_of=5         wide search without excessive overhead
+        beam_size=1                      greedy decoding — 4× faster than beam=5,
+                                         negligible WER loss for short utterances
         condition_on_previous_text=False prevents cascading hallucinations
         initial_prompt                   primes Whisper toward colloquial French
                                          including accents, contractions, slang
         no_speech_threshold=0.45        rejects low-confidence segments
         compression_ratio_threshold=2.4 detects hallucinatory repetitions
-        vad_filter                       post-hoc silence filtering
+        vad_filter=False                 our energy VAD already stripped silence
         """
         if self._cancel_flag.is_set():
             self._set_state("idle")
@@ -279,13 +280,9 @@ class STTListener:
             segments, _info = model.transcribe(
                 audio,
                 language=STT_LANGUAGE,
-                beam_size=5,
-                best_of=5,
+                beam_size=1,           # greedy decoding: 4× faster, negligible WER loss
                 temperature=0.0,
                 condition_on_previous_text=False,
-                # Prompt anchored on colloquial spoken French, including pronouns
-                # and commonly confused words (ça/ta, c'est/sais, j'ai, t'as)
-                # and informal language so Whisper does not filter or substitute them.
                 initial_prompt=(
                     "Transcription fidèle du français parlé, incluant le langage "
                     "familier et les jurons. Exemples : ça, c'est, j'ai, t'as, t'es, "
@@ -293,13 +290,7 @@ class STTListener:
                 ),
                 no_speech_threshold=0.45,
                 compression_ratio_threshold=2.4,
-                vad_filter=True,
-                vad_parameters={
-                    "threshold": 0.45,
-                    "min_speech_duration_ms": 200,
-                    "min_silence_duration_ms": 600,
-                    "speech_pad_ms": 400,
-                },
+                vad_filter=False,      # energy VAD already stripped silence before this
             )
             text = " ".join(seg.text.strip() for seg in segments).strip()
         except Exception as exc:

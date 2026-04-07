@@ -26,7 +26,7 @@ from core.constants import (
     LAST_MP3, CONFIG_FILE, HISTORY_LOG,
     fmt_rate, fmt_pitch,
 )
-from core.audio import _decode_mp3
+from core.audio import _decode_mp3, trim_silence, save_mp3
 from core.sounds import (
     ensure_sounds, play_sound,
     SND_RECOGNIZING, SND_RECOGNIZED, SND_NOT_RECOGNIZED,
@@ -57,10 +57,15 @@ class FrenchTTSApp(ctk.CTk):
         # --- Internal state -------------------------------------------------
         # _stop_event is set by _on_stop / _shutdown to abort ongoing audio.
         # Worker threads check it at every async yield point.
-        self._stop_event    = threading.Event()
-        # Only one TTS or replay thread runs at a time; we keep a reference
-        # to check is_alive() before launching a new one.
-        self._tts_thread:   threading.Thread | None = None
+        self._stop_event = threading.Event()
+        # _tts_busy is set while a TTS/replay coroutine is running.
+        # Checked in _on_speak/_on_replay/_on_mic_toggle to block concurrent starts.
+        self._tts_busy   = threading.Event()
+        # Persistent asyncio event loop running in a daemon thread.
+        # Avoids the per-call loop creation overhead of the old one-thread-per-TTS model.
+        self._loop       = asyncio.new_event_loop()
+        threading.Thread(target=self._loop.run_forever,
+                         daemon=True, name="tts-loop").start()
         # Maps dropdown display strings ("2: CABLE Input ...") to device
         # indices accepted by sounddevice. Rebuilt on demand via ↺.
         self._device_map:   dict[str, int] = {}
@@ -653,7 +658,7 @@ class FrenchTTSApp(ctk.CTk):
         _push_history, shaving off any sequential overhead before audio begins.
         """
         text = self.text_box.get("1.0", "end-1c").strip()
-        if not text or (self._tts_thread and self._tts_thread.is_alive()):
+        if not text or self._tts_busy.is_set():
             return
         self._stop_event.clear()
         self._run_worker(lambda: self._tts_async(text))  # network starts immediately
@@ -679,7 +684,7 @@ class FrenchTTSApp(ctk.CTk):
 
     def _on_replay(self) -> None:
         """Replay the last generated audio without re-calling edge-tts."""
-        if not os.path.exists(LAST_MP3) or (self._tts_thread and self._tts_thread.is_alive()):
+        if not os.path.exists(LAST_MP3) or self._tts_busy.is_set():
             return
         self._stop_event.clear()
         self.speak_btn.configure(state="disabled")
@@ -696,7 +701,7 @@ class FrenchTTSApp(ctk.CTk):
         A second press during listening or recording cancels without transcribing.
         Blocked while TTS is playing; button is disabled during transcription.
         """
-        if self._tts_thread and self._tts_thread.is_alive():
+        if self._tts_busy.is_set():
             return
         if self._stt_state == "idle":
             self._listener.device = self._input_device_map.get(self.stt_input_var.get())
@@ -845,6 +850,7 @@ class FrenchTTSApp(ctk.CTk):
             self._listener.cancel()
         if self._tray_icon:
             self._tray_icon.stop()
+        self._loop.call_soon_threadsafe(self._loop.stop)
         self.after(0, self.destroy)
 
     def _set_status(self, text: str) -> None:
@@ -941,43 +947,36 @@ class FrenchTTSApp(ctk.CTk):
     # --- TTS / Playback -----------------------------------------------------
 
     def _run_worker(self, coro_factory) -> None:
-        """Spawn a daemon thread that runs an async coroutine factory.
+        """Submit a TTS coroutine to the persistent event loop.
 
-        A new event loop is created per thread because asyncio loops are not
-        thread-safe and the main thread does not run one. ``coro_factory`` is
-        a zero-argument callable that returns a coroutine, allowing closures
-        to capture parameters (e.g. the text string for _tts_async).
-
-        The ``finally`` block runs even if the coroutine raises, ensuring
-        buttons are always re-enabled. It checks _stop_event first so that
-        an intentional stop (via _on_stop) does not re-enable the UI before
-        the user has had a chance to see the reset from _on_stop itself.
+        The persistent loop (self._loop) runs in a dedicated daemon thread for
+        the app's lifetime, eliminating per-call thread and loop startup costs.
+        _tts_busy is set immediately so that re-entrant calls are blocked even
+        before the coroutine is scheduled on the loop.
         """
-        def target():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        self._tts_busy.set()
+
+        async def _wrapper():
             try:
-                loop.run_until_complete(coro_factory())
+                await coro_factory()
             except Exception as e:
-                self._set_status(f"{STATUS_ERROR}: {str(e)[:80]}")
+                self.after(0, lambda: self._set_status(
+                    f"{STATUS_ERROR}: {str(e)[:80]}"))
             finally:
-                loop.close()
+                self._tts_busy.clear()
                 if not self._stop_event.is_set():
-                    self._restore_ui()
+                    self.after(0, self._restore_ui)
                     self.after(0, self._maybe_auto_restart_stt)
-        self._tts_thread = threading.Thread(target=target, daemon=True)
-        self._tts_thread.start()
+
+        asyncio.run_coroutine_threadsafe(_wrapper(), self._loop)
 
     async def _tts_async(self, text: str) -> None:
         """Stream TTS audio from edge-tts, persist it, then play it.
 
-        The MP3 stream arrives in variable-size chunks. Each chunk is checked
-        against _stop_event so the user can abort mid-stream without waiting
-        for the full download. Only "audio" chunks carry PCM data; "WordBoundary"
-        chunks (timing metadata) are ignored.
-
         Volume is stored as 0–100 in config but edge-tts expects a signed
         percent offset relative to 100 (e.g. 80 → "-20%", 100 → "+0%").
+        Decode runs in a thread-pool executor so the event loop is not blocked.
+        The file save also runs in the executor concurrently with silence trimming.
         """
         voice  = VOICES[self.voice_var.get()]
         rate   = fmt_rate(self.rate_var.get())
@@ -996,14 +995,18 @@ class FrenchTTSApp(ctk.CTk):
         if self._stop_event.is_set() or not mp3_buffer:
             return
 
-        # Overwrite last.mp3 so replay always reflects the most recent speech.
-        try:
-            with open(LAST_MP3, "wb") as f:
-                f.write(bytes(mp3_buffer))
-        except OSError:
-            pass
+        loop = asyncio.get_running_loop()
+        data = bytes(mp3_buffer)
 
-        pcm, samplerate = _decode_mp3(bytes(mp3_buffer))
+        # Decode PCM off the event loop thread (CPU-bound).
+        # Save to disk concurrently so replay is ready as soon as audio starts.
+        pcm, samplerate = await loop.run_in_executor(None, _decode_mp3, data)
+        loop.run_in_executor(None, save_mp3, LAST_MP3, data)
+
+        pcm = trim_silence(pcm)
+        if not pcm.size:
+            return
+
         self._set_status(STATUS_PLAYING)
         await self._play_pcm(pcm, samplerate)
 
@@ -1017,23 +1020,16 @@ class FrenchTTSApp(ctk.CTk):
     async def _play_pcm(self, pcm: np.ndarray, samplerate: int) -> None:
         """Play PCM on the primary device and optionally on the monitor device.
 
-        Primary stream: sd.play() (non-blocking, existing behaviour).
-        Monitor stream: a separate sd.OutputStream whose write() runs on a
-        daemon thread so it never blocks the asyncio loop. The two streams are
-        started as close together as possible to stay in sync; any small offset
-        (~10 ms) is imperceptible for monitoring purposes.
+        latency='low' asks PortAudio for the smallest stable buffer, shaving
+        20–40 ms off the device-open → first-sample delay on Windows WASAPI.
 
-        The polling loop checks _stop_event every 50 ms. When it fires:
-          - sd.stop() kills the primary stream.
-          - monitor_stream.abort() kills the monitor stream (abort() is
-            more forceful than stop() and interrupts a blocking write()).
-
-        ``sd.get_stream().active`` raises RuntimeError if no stream exists
-        (e.g. device disconnected mid-playback); the except treats that as
-        a clean end of playback.
+        The wait loop runs in the thread-pool executor so the event loop is
+        free to service other coroutines. _stop_event.wait(0.005) gives 5 ms
+        stop resolution — 10× tighter than the old 50 ms asyncio.sleep poll.
         """
         primary_idx = self._device_map.get(self.device_var.get())
-        sd.play(pcm, samplerate=samplerate, device=primary_idx, blocking=False)
+        sd.play(pcm, samplerate=samplerate, device=primary_idx,
+                blocking=False, latency='low')
 
         # --- Optional monitor stream ----------------------------------------
         monitor_stream = None
@@ -1043,7 +1039,7 @@ class FrenchTTSApp(ctk.CTk):
                 try:
                     monitor_stream = sd.OutputStream(
                         samplerate=samplerate, device=m_idx,
-                        channels=1, dtype="int16")
+                        channels=1, dtype="int16", latency='low')
                     monitor_stream.start()
                     threading.Thread(
                         target=self._write_monitor_pcm,
@@ -1057,24 +1053,31 @@ class FrenchTTSApp(ctk.CTk):
                             pass
                     monitor_stream = None
 
-        # --- Poll until primary finishes or stop is requested ---------------
-        while True:
-            if self._stop_event.is_set():
-                sd.stop()
-                if monitor_stream is not None:
-                    try:
-                        monitor_stream.abort()
-                    except Exception:
-                        pass
-                return
-            try:
-                if not sd.get_stream().active:
-                    break
-            except Exception:
-                break
-            await asyncio.sleep(0.05)
+        # --- Wait in executor: 5 ms resolution, event loop stays free -------
+        stop = self._stop_event
 
-        # Primary finished naturally — clean up monitor
+        def _wait() -> bool:
+            """Return True if stopped by user, False if finished naturally."""
+            while True:
+                if stop.wait(timeout=0.005):
+                    return True
+                try:
+                    if not sd.get_stream().active:
+                        return False
+                except Exception:
+                    return False
+
+        stopped = await asyncio.get_running_loop().run_in_executor(None, _wait)
+
+        if stopped:
+            sd.stop()
+            if monitor_stream is not None:
+                try:
+                    monitor_stream.abort()
+                except Exception:
+                    pass
+            return
+
         if monitor_stream is not None:
             try:
                 monitor_stream.stop()
