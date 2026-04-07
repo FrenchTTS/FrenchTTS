@@ -48,7 +48,8 @@ The app wraps it in a clean dark-mode desktop UI with audio device routing, so y
 - **System tray** — minimizes to tray, restores on double-click
 - **Acrylic blur** — Windows 10/11 native background blur with adjustable opacity
 - **Persistent config** — all settings and history saved in `%APPDATA%\FrenchTTS`
-- **Auto-updater** — checks GitHub Releases at launch and self-replaces when frozen as `.exe`
+- **Auto-updater** — checks GitHub Releases at launch, downloads and self-replaces; versioned by commit SHA (`prod-XXXXXXX`)
+- **What's New dialog** — shown once after each update with the release changelog
 - **Buildable as `.exe`** — single-file PyInstaller bundle via `build.bat`
 
 ---
@@ -104,8 +105,9 @@ python main.py
 build.bat
 ```
 
-Produces `dist/FrenchTTS.exe` as a self-contained single-file executable.
-Requires `img/icon.ico` to be present before building.
+Produces `dist/FrenchTTS.exe` as a self-contained single-file executable. The current git SHA is automatically injected as the build ID (`prod-XXXXXXX`). Requires `img/icon.ico` to be present.
+
+To publish a release, trigger the **Build & Release** workflow manually from the GitHub Actions UI. It will build, tag the release `prod-<sha>`, and attach the exe. Write `versions/<sha>.md` beforehand if you want a What's New changelog.
 
 ---
 
@@ -173,16 +175,20 @@ To also hear the output in your own headphones, enable **Casque** in settings an
 ```
 FrenchTTS/
 ├── core/
-│   ├── audio.py           # MP3 → PCM decoding
+│   ├── audio.py           # MP3 → PCM decoding, silence trimming
 │   ├── constants.py       # paths, voices, settings defaults, formatters
-│   └── sounds.py          # STT audio feedback tones
+│   ├── sounds.py          # STT audio feedback tones
+│   └── version.py         # BUILD_ID — "dev" in source, SHA in release exe
 ├── ui/
 │   ├── app.py             # FrenchTTSApp — main window + TTS pipeline
 │   ├── settings.py        # SettingsWindow
 │   ├── updater.py         # UpdaterSplash, self-replacement logic
-│   └── utils.py           # window icons, acrylic blur, tray image
+│   ├── utils.py           # window icons, acrylic blur, tray image
+│   └── whats_new.py       # What's New dialog shown after updates
 ├── voice/
 │   └── listener.py        # mic capture → VAD → faster-whisper STT pipeline
+├── versions/
+│   └── <sha>.md           # changelog shown in What's New after each update
 ├── audio/                 # STT feedback WAV tones (auto-generated if absent)
 ├── img/
 │   ├── icon.ico

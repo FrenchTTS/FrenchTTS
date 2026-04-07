@@ -64,12 +64,15 @@ except Exception:
             SINCE="(premier lancement)"
           fi
 
-          # Collect commit subjects, excluding merge commits
+          # Collect commit subjects, excluding merge commits and non-user-facing
+          # types (docs, ci, chore, build, style) so the What's New dialog only
+          # shows changes relevant to the end user.
           if [ -n "$RANGE" ]; then
-            COMMITS=$(git log "$RANGE" --pretty='- %s' --no-merges)
+            RAW=$(git log "$RANGE" --pretty='%s' --no-merges)
           else
-            COMMITS=$(git log --pretty='- %s' --no-merges)
+            RAW=$(git log --pretty='%s' --no-merges)
           fi
+          COMMITS=$(printf '%s\n' "$RAW" | grep -vE '^(docs|ci|chore|build|style)\b' | sed 's/^/- /')
           [ -z "$COMMITS" ] && COMMITS="- Maintenance et améliorations internes."
 
           {
