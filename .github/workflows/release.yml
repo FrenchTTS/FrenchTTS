@@ -26,14 +26,15 @@ jobs:
         run: printf 'BUILD_ID = "%s"\n' "${{ steps.ver.outputs.sha }}" > core/version.py
 
       # Auto-generate versions/<sha>.md from commits since the last prod-* release.
-      # Skipped when a hand-written file already exists in the repo
-      # (commit versions/<sha>.md before triggering the build to override).
+      # Skipped when a hand-written file already exists (commit it before triggering).
+      # docs:, ci:, chore:, build:, style: commits are excluded — only user-facing
+      # changes (feat:, fix:, perf:, revert:, …) appear in the What's New dialog.
       - name: Generate changelog
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.ver.outputs.sha }}
         run: |
-          SHA="${{ steps.ver.outputs.sha }}"
           DATE=$(date -u +%Y-%m-%d)
 
           if [ -f "versions/${SHA}.md" ]; then
@@ -41,21 +42,13 @@ jobs:
             exit 0
           fi
 
-          # Fetch the latest prod-* release tag via GitHub API
           PREV_TAG=$(curl -s \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
-            | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    print(d.get('tag_name', ''))
-except Exception:
-    print('')
-          " 2>/dev/null || echo "")
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tag_name','') or '')" \
+            2>/dev/null || echo "")
 
-          # Verify the tag resolves locally (needs fetch-depth: 0)
           if [ -n "$PREV_TAG" ] && git rev-parse "${PREV_TAG}^{}" >/dev/null 2>&1; then
             RANGE="${PREV_TAG}..HEAD"
             SINCE="depuis \`${PREV_TAG}\`"
@@ -64,44 +57,30 @@ except Exception:
             SINCE="(premier lancement)"
           fi
 
-          # Collect commit subjects, excluding merge commits and non-user-facing
-          # types (docs, ci, chore, build, style) so the What's New dialog only
-          # shows changes relevant to the end user.
           if [ -n "$RANGE" ]; then
             RAW=$(git log "$RANGE" --pretty='%s' --no-merges)
           else
             RAW=$(git log --pretty='%s' --no-merges)
           fi
+
           COMMITS=$(printf '%s\n' "$RAW" | grep -vE '^(docs|ci|chore|build|style)\b' | sed 's/^/- /')
           [ -z "$COMMITS" ] && COMMITS="- Maintenance et améliorations internes."
 
-          {
-            printf -- "---\nid: %s\ndate: %s\n---\n\n" "$SHA" "$DATE"
-            printf "## FrenchTTS \`prod-%s\`\n\n" "$SHA"
-            printf "Changements %s :\n\n" "$SINCE"
-            printf "%s\n" "$COMMITS"
-          } > "versions/${SHA}.md"
+          printf -- "---\nid: %s\ndate: %s\n---\n\n## FrenchTTS \`prod-%s\`\n\nChangements %s :\n\n%s\n" \
+            "$SHA" "$DATE" "$SHA" "$SINCE" "$COMMITS" > "versions/${SHA}.md"
 
-          echo "Generated versions/${SHA}.md"
+          echo "Generated versions/${SHA}.md:"
           cat "versions/${SHA}.md"
 
-      # Strip YAML frontmatter so the GitHub release body shows clean markdown.
-      # The app strips it itself at runtime; the release page does not.
+      # Strip YAML frontmatter (--- ... ---) so the GitHub release body renders
+      # as clean markdown. The app strips it itself at runtime.
       - name: Prepare release body
         shell: bash
         env:
           SHA: ${{ steps.ver.outputs.sha }}
         run: |
-          python3 - <<'PYEOF'
-import os
-sha  = os.environ["SHA"]
-text = open(f"versions/{sha}.md", encoding="utf-8").read()
-if text.startswith("---"):
-    end = text.find("---", 3)
-    if end != -1:
-        text = text[end + 3:].strip()
-open("release_body.md", "w", encoding="utf-8").write(text)
-PYEOF
+          awk 'BEGIN{fm=0;out=0} !out&&/^---$/{fm++;if(fm==2)out=1;next} out{print}' \
+            "versions/${SHA}.md" | sed '/./,$!d' > release_body.md
 
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
