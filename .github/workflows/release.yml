@@ -64,20 +64,27 @@ jobs:
           fi
 
           # Group commits by conventional-commit type, stripping the prefix.
-          FEAT=$(printf '%s\n'  "$RAW" | grep -E '^feat(\([^)]*\))?!?:' | sed 's/^feat[^:]*: */- /')
-          FIX=$(printf '%s\n'   "$RAW" | grep -E '^fix(\([^)]*\))?!?:'  | sed 's/^fix[^:]*: */- /')
-          PERF=$(printf '%s\n'  "$RAW" | grep -E '^perf(\([^)]*\))?!?:' | sed 's/^perf[^:]*: */- /')
-          OTHER=$(printf '%s\n' "$RAW" | grep -vE '^(feat|fix|perf|docs|ci|chore|build|style)(\([^)]*\))?!?:' | grep -v '^$' | sed 's/^/- /')
+          # { grep ... || true; } prevents exit code 1 (no match) from killing
+          # the script under bash -e -o pipefail.
+          FEAT=$(printf '%s\n'  "$RAW" | { grep -E '^feat(\([^)]*\))?!?:'  || true; } | sed 's/^feat[^:]*: */- /')
+          FIX=$(printf '%s\n'   "$RAW" | { grep -E '^fix(\([^)]*\))?!?:'   || true; } | sed 's/^fix[^:]*: */- /')
+          PERF=$(printf '%s\n'  "$RAW" | { grep -E '^perf(\([^)]*\))?!?:'  || true; } | sed 's/^perf[^:]*: */- /')
+          OTHER=$(printf '%s\n' "$RAW" \
+            | { grep -vE '^(feat|fix|perf|docs|ci|chore|build|style)(\([^)]*\))?!?:' || true; } \
+            | { grep -v '^$' || true; } \
+            | sed 's/^/- /')
 
-          BODY=""
-          [ -n "$FEAT"  ] && BODY="${BODY}### Nouveautés\n\n${FEAT}\n\n"
-          [ -n "$FIX"   ] && BODY="${BODY}### Corrections\n\n${FIX}\n\n"
-          [ -n "$PERF"  ] && BODY="${BODY}### Performances\n\n${PERF}\n\n"
-          [ -n "$OTHER" ] && BODY="${BODY}### Autres\n\n${OTHER}\n\n"
-          [ -z "$BODY"  ] && BODY="Maintenance et améliorations internes.\n"
-
-          printf -- "---\nid: %s\ndate: %s\n---\n\n## FrenchTTS \`prod-%s\`\n\n%b" \
-            "$SHA" "$DATE" "$SHA" "$BODY" > "versions/${SHA}.md"
+          # Write the file section by section (avoids %b portability issues).
+          {
+            printf -- "---\nid: %s\ndate: %s\n---\n\n## FrenchTTS \`prod-%s\`\n\n" "$SHA" "$DATE" "$SHA"
+            if [ -n "$FEAT"  ]; then printf "### Nouveautés\n\n%s\n\n"    "$FEAT";  fi
+            if [ -n "$FIX"   ]; then printf "### Corrections\n\n%s\n\n"   "$FIX";   fi
+            if [ -n "$PERF"  ]; then printf "### Performances\n\n%s\n\n"  "$PERF";  fi
+            if [ -n "$OTHER" ]; then printf "### Autres\n\n%s\n\n"        "$OTHER"; fi
+            if [ -z "${FEAT}${FIX}${PERF}${OTHER}" ]; then
+              printf "Maintenance et améliorations internes.\n"
+            fi
+          } > "versions/${SHA}.md"
 
           echo "Generated versions/${SHA}.md:"
           cat "versions/${SHA}.md"
