@@ -457,7 +457,7 @@ class FrenchTTSApp(ctk.CTk):
         self.opacity_var.set(float(cfg.get("opacity", 0.93)))
         self.replay_key_var.set(str(cfg.get("replay_key", "F2")))
         self.stop_key_var.set(str(cfg.get("stop_key", "F3")))
-        self.stt_enabled_var.set(bool(cfg.get("stt_enabled", True)))
+        self.stt_enabled_var.set(bool(cfg.get("stt_enabled", False)))
 
         # STT input device
         match = self._resolve_device(
@@ -696,7 +696,7 @@ class FrenchTTSApp(ctk.CTk):
         self._hide_to_tray()
         self.after(800, self._tray_notify_hidden)
 
-    def _tray_notify(self, message: str) -> None:
+    def _tray_notify(self, message: str, title: str = APP_NAME) -> None:
         """Send a balloon notification.
 
         Uses the live tray icon when the app is hidden in the tray.
@@ -705,12 +705,12 @@ class FrenchTTSApp(ctk.CTk):
         """
         if self._tray_icon:
             try:
-                self._tray_icon.notify(message, APP_NAME)
+                self._tray_icon.notify(message, title)
                 return
             except Exception:
                 pass
         from ui.utils import send_notification
-        send_notification(APP_NAME, message)
+        send_notification(title, message)
 
     def _tray_notify_hidden(self) -> None:
         self._tray_notify(
@@ -921,7 +921,7 @@ class FrenchTTSApp(ctk.CTk):
         play_sound(SND_RECOGNIZED)
         self._set_textbox(text)
         if self.stt_notify_var.get():
-            self._tray_notify(text)
+            self._tray_notify(text, "STT — Retranscription")
         self._stt_triggered_tts = True
         self._on_speak()
 

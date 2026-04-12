@@ -9,7 +9,11 @@ a = Analysis(
     ['installer_main.py'],
     pathex=[],
     binaries=[],
-    datas=[('../dist/FrenchTTS.exe', '.')],  # bundle the main app inside the installer
+    datas=[
+        ('../dist/FrenchTTS.exe', '.'),   # bundle the main app inside the installer
+        ('../img/icon.ico',       'img'), # window + taskbar icon
+        ('../img/icon.png',       'img'), # in-window icon image
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

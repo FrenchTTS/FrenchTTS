@@ -57,6 +57,15 @@ def _bundled_exe() -> str:
     return os.path.join(sys._MEIPASS, f"{APP_NAME}.exe")
 
 
+def _set_dark_titlebar(hwnd: int) -> None:
+    """Apply the immersive dark title bar on Windows 10 build 18985+."""
+    try:
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            hwnd, 20, ctypes.byref(ctypes.c_int(1)), 4)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Modes
 # ---------------------------------------------------------------------------
@@ -70,29 +79,100 @@ def _do_update(pid: int, target: str) -> None:
 
 
 def _do_install() -> None:
-    """First-install mode: show a minimal UI, extract bundled exe, create shortcut."""
+    """First-install mode: dark-themed installer matching the FrenchTTS DA."""
     import tkinter as tk
-    from tkinter import ttk, messagebox
+    import tkinter.ttk as ttk
+    from tkinter import messagebox
 
+    # --- Window --------------------------------------------------------------
     root = tk.Tk()
     root.title(f"{APP_NAME} — Installation")
     root.resizable(False, False)
-    root.geometry("360x145")
+    root.configure(bg="#1c1c1c")
+
+    WIN_W, WIN_H = 380, 210
+    sw = root.winfo_screenwidth()
+    sh = root.winfo_screenheight()
+    root.geometry(f"{WIN_W}x{WIN_H}+{(sw - WIN_W) // 2}+{(sh - WIN_H) // 2}")
+
+    # Dark title bar
+    root.update_idletasks()
+    hwnd = ctypes.windll.user32.GetParent(root.winfo_id()) or root.winfo_id()
+    _set_dark_titlebar(hwnd)
+
+    # Window icon (.ico — shown in taskbar and title bar)
+    ico_path = os.path.join(sys._MEIPASS, "img", "icon.ico")
+    if os.path.isfile(ico_path):
+        try:
+            root.iconbitmap(ico_path)
+        except Exception:
+            pass
+
+    # --- In-window icon image (48×48) ---------------------------------------
+    icon_img = None
+    png_path = os.path.join(sys._MEIPASS, "img", "icon.png")
+    if os.path.isfile(png_path):
+        try:
+            from PIL import Image as _Img, ImageTk as _ITk
+            pil = _Img.open(png_path).resize((48, 48), _Img.LANCZOS)
+            icon_img = _ITk.PhotoImage(pil)
+        except Exception:
+            pass
+
+    # --- Progress bar style -------------------------------------------------
+    style = ttk.Style(root)
+    style.theme_use("clam")
+    style.configure(
+        "FT.Horizontal.TProgressbar",
+        troughcolor="#2c2c2c",
+        background="#3a7ebf",
+        darkcolor="#3a7ebf",
+        lightcolor="#3a7ebf",
+        bordercolor="#2c2c2c",
+    )
+
+    # --- Layout -------------------------------------------------------------
+    header = tk.Frame(root, bg="#1c1c1c")
+    header.pack(pady=(24, 8))
+
+    if icon_img:
+        lbl_icon = tk.Label(header, image=icon_img, bg="#1c1c1c")
+        lbl_icon.image = icon_img   # prevent GC
+        lbl_icon.pack(side="left", padx=(0, 10))
 
     tk.Label(
-        root, text=f"Installation de {APP_NAME}",
-        font=("Segoe UI", 11, "bold")
-    ).pack(pady=(18, 4))
+        header, text=APP_NAME,
+        font=("Segoe UI", 14, "bold"),
+        fg="#ffffff", bg="#1c1c1c",
+    ).pack(side="left")
 
-    status = tk.StringVar(value="Prêt.")
-    tk.Label(root, textvariable=status, font=("Segoe UI", 9)).pack()
+    status_var = tk.StringVar(value="Cliquez sur Installer pour commencer.")
+    tk.Label(
+        root, textvariable=status_var,
+        font=("Segoe UI", 9),
+        fg="#888888", bg="#1c1c1c",
+    ).pack(pady=(0, 8))
 
-    bar = ttk.Progressbar(root, length=300, mode="indeterminate")
-    bar.pack(pady=8)
+    bar = ttk.Progressbar(
+        root, length=300, mode="indeterminate",
+        style="FT.Horizontal.TProgressbar",
+    )
+    bar.pack(pady=(0, 14))
 
+    install_btn = tk.Button(
+        root, text="Installer",
+        font=("Segoe UI", 9, "bold"),
+        bg="#3a7ebf", fg="#ffffff",
+        activebackground="#2e6da4", activeforeground="#ffffff",
+        relief="flat", padx=24, pady=7, cursor="hand2", bd=0,
+    )
+    install_btn.pack()
+
+    # --- Install logic ------------------------------------------------------
     def _run() -> None:
+        install_btn.configure(state="disabled")
         bar.start()
-        status.set("Installation en cours...")
+        status_var.set("Installation en cours...")
         try:
             os.makedirs(INSTALL_DIR, exist_ok=True)
             target = os.path.join(INSTALL_DIR, f"{APP_NAME}.exe")
@@ -112,22 +192,21 @@ def _do_install() -> None:
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
 
-            status.set("Installation terminée !")
+            status_var.set("Installation terminée !")
             bar.stop()
-            root.after(800, lambda: (
+            bar.configure(mode="determinate")
+            bar["value"] = 100
+            root.after(900, lambda: (
                 subprocess.Popen([target], creationflags=subprocess.DETACHED_PROCESS),
                 root.destroy(),
             ))
         except Exception as exc:
             bar.stop()
-            messagebox.showerror("Erreur d'installation", str(exc))
-            root.destroy()
+            install_btn.configure(state="normal")
+            status_var.set(f"Erreur : {exc}")
+            messagebox.showerror("Erreur d'installation", str(exc), parent=root)
 
-    tk.Button(
-        root, text="Installer", font=("Segoe UI", 9),
-        command=lambda: root.after(50, _run),
-    ).pack(pady=(0, 12))
-
+    install_btn.configure(command=lambda: root.after(50, _run))
     root.mainloop()
 
 
