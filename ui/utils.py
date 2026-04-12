@@ -8,8 +8,11 @@ so any UI file can import them without risk of circular imports.
 import ctypes
 import os
 import sys
+import threading
+import time
 
 import customtkinter as ctk
+import pystray
 from PIL import Image, ImageDraw
 
 
@@ -123,6 +126,34 @@ def _apply_acrylic(hwnd: int, color_abgr: int = 0xD0202020) -> None:
         ctypes.windll.user32.SetWindowCompositionAttribute(hwnd, ctypes.byref(data))
     except Exception:
         pass
+
+
+def send_notification(title: str, message: str) -> None:
+    """Show a one-shot balloon notification via a temporary tray icon.
+
+    Creates a pystray icon, fires the notification, then destroys the icon
+    after 5 seconds.  The worker thread is intentionally non-daemon so the
+    notification can outlive ``main()`` returning — needed when the updater
+    closes the splash and the process is about to exit.
+    """
+    ico        = _get_icon_path()
+    icon_image = Image.open(ico) if ico and os.path.exists(ico) else make_tray_image()
+
+    def _worker() -> None:
+        try:
+            icon = pystray.Icon(title, icon_image, title)
+
+            def _setup(ic: pystray.Icon) -> None:
+                time.sleep(0.4)          # wait for shell registration
+                ic.notify(message, title)
+                time.sleep(5)            # keep icon alive for notification duration
+                ic.stop()
+
+            icon.run(setup=_setup)       # blocking; returns when _setup calls stop()
+        except Exception:
+            pass
+
+    threading.Thread(target=_worker, daemon=False).start()
 
 
 def force_taskbar_presence(window) -> None:

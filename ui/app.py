@@ -645,16 +645,18 @@ class FrenchTTSApp(ctk.CTk):
         self._hide_to_tray()
         self.after(800, self._tray_notify_hidden)
 
-    def _tray_notify_hidden(self) -> None:
-        """Send a balloon notification from the tray icon."""
+    def _tray_notify(self, message: str) -> None:
+        """Send a balloon notification from the active tray icon (no-op if absent)."""
         if self._tray_icon:
             try:
-                self._tray_icon.notify(
-                    f"{APP_NAME} continue en arrière-plan.\n"
-                    "Cliquez sur l'icône pour réouvrir.",
-                    APP_NAME)
+                self._tray_icon.notify(message, APP_NAME)
             except Exception:
                 pass
+
+    def _tray_notify_hidden(self) -> None:
+        self._tray_notify(
+            f"{APP_NAME} continue en arrière-plan.\n"
+            "Cliquez sur l'icône pour réouvrir.")
 
     def _on_unmap(self, event) -> None:
         """Intercept window minimise and redirect to system tray.
@@ -875,6 +877,8 @@ class FrenchTTSApp(ctk.CTk):
         def _ui():
             self._set_status(f"STT: {message}")
             self._restore_ui()
+            if self._in_tray:
+                self._tray_notify(f"Erreur STT — {message}")
         self.after(0, _ui)
 
     def _maybe_auto_restart_stt(self) -> None:

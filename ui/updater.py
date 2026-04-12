@@ -20,7 +20,7 @@ import customtkinter as ctk
 
 from core.constants import APP_NAME, GITHUB_REPO, _BTN_SECONDARY
 from core.version import BUILD_ID
-from ui.utils import apply_window_transparency, force_taskbar_presence
+from ui.utils import apply_window_transparency, force_taskbar_presence, send_notification
 
 
 # ---------------------------------------------------------------------------
@@ -375,7 +375,13 @@ class UpdaterSplash(ctk.CTk):
             def _on_apply():
                 if _apply_update(new_file):
                     self._launch_app = False
-                    self.destroy()
+                    self._progress.set(1.0)
+                    self._status_lbl.configure(text="Redémarrage en cours...")
+                    send_notification(
+                        APP_NAME,
+                        "Mise à jour téléchargée.\n"
+                        "FrenchTTS va redémarrer automatiquement.")
+                    self.after(1500, self.destroy)
                 else:
                     self._show_error(
                         "Impossible de lancer le programme d'installation.\n"
