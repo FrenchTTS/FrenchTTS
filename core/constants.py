@@ -98,6 +98,7 @@ DEFAULT_SETTINGS: dict = {
     "monitor_enabled":  False, # play TTS audio on a second output device
     "monitor_device":   "",    # empty → auto-select first non-VB-Cable output
     "last_seen_version": "",   # BUILD_ID of the last version whose changelog was shown
+    "version":           "",   # BUILD_ID of the last running session (written by _save_settings)
 }
 
 # Ghost-style button appearance reused for secondary actions in both windows.

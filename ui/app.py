@@ -176,7 +176,7 @@ class FrenchTTSApp(ctk.CTk):
         """
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
-        self.title(APP_NAME)
+        self.title(f"{APP_NAME} — Synthèse vocale")
         self.geometry("490x1")   # height=1 → auto-sized after build
         self.columnconfigure(0, weight=1)
 
@@ -522,6 +522,7 @@ class FrenchTTSApp(ctk.CTk):
             "stt_auto_restart":  self.stt_auto_restart_var.get(),
             "stt_notify":        self.stt_notify_var.get(),
             "last_seen_version": self._last_seen_version,
+            "version":           BUILD_ID,
         }, indent=2, ensure_ascii=False)
         try:
             fd, tmp = tempfile.mkstemp(

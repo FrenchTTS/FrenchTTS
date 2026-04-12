@@ -17,6 +17,7 @@ a = Analysis(
     datas=[
         ('../dist/FrenchTTS.exe',              '.'),    # main application
         ('../dist/FrenchTTSUninstaller.exe',   '.'),    # uninstaller (extracted at install time)
+        ('../dist/build_id.txt',               '.'),    # version string of the bundled build
         ('../img/icon.ico',                    'img'),  # PE icon / taskbar
         ('../img/icon.png',                    'img'),  # (reserved for future in-window display)
     ],

@@ -64,7 +64,7 @@ python -m PyInstaller ^
 set BUILD_RESULT=%errorlevel%
 
 :: Always restore core/version.py so the working tree stays clean.
-(echo BUILD_ID = "dev") > core\version.py
+git checkout -- core\version.py 2>nul || (echo BUILD_ID = "dev") > core\version.py
 
 if %BUILD_RESULT% neq 0 (
     echo.
@@ -72,6 +72,10 @@ if %BUILD_RESULT% neq 0 (
     pause
     exit /b 1
 )
+
+:: Write the build ID alongside FrenchTTS.exe so the installer can display
+:: version info ("prod-XXXXXXX → prod-YYYYYYY") without reading the exe.
+echo %GIT_SHA%> dist\build_id.txt
 
 :: -----------------------------------------------------------------------
 :: Step 2 — Build FrenchTTSUninstaller.exe (tiny, no UI framework)
@@ -116,6 +120,7 @@ echo.
 echo Build complete.
 echo   App:         dist\FrenchTTS.exe
 echo   Uninstaller: dist\FrenchTTSUninstaller.exe
+echo   Version:     dist\build_id.txt  (%GIT_SHA%^)
 echo   Installer:   installer\dist\FrenchTTSInstaller.exe  (build ID: %GIT_SHA%^)
 echo Config saved in: %%APPDATA%%\FrenchTTS\config.json
 pause

@@ -1,23 +1,28 @@
 """
 FrenchTTSInstaller — installer and update helper.
 
-FrenchTTS.exe and FrenchTTSUninstaller.exe are bundled inside this exe via
-PyInstaller --add-data.
+FrenchTTS.exe, FrenchTTSUninstaller.exe and build_id.txt are bundled inside
+this exe via PyInstaller --add-data.
 
-First-install mode (no args, user double-click):
-  Shows a dark CTk splash matching the FrenchTTS DA.
+First-install mode  (no args, user double-click, no existing install):
+  Shows a dark CTk splash — Install UI.
   Extracts bundled FrenchTTS.exe + FrenchTTSUninstaller.exe to INSTALL_DIR,
   creates a Desktop shortcut and a Start Menu folder, then launches the app.
 
-Update mode (called by the running FrenchTTS.exe auto-updater):
+Reinstall / manual-update mode  (no args, existing installation found):
+  Same CTk splash — Update UI.
+  Shows current installed version → new version.
+  Replaces the exe and uninstaller in INSTALL_DIR, refreshes shortcuts.
+
+Silent update mode  (called by the running app auto-updater):
   FrenchTTSInstaller.exe --pid PID --target CURRENT_EXE_PATH
-  Headless — no UI. Waits for PID to exit (Win32 WaitForSingleObject),
-  extracts bundled FrenchTTS.exe from sys._MEIPASS, copies it to CURRENT_EXE_PATH,
-  refreshes FrenchTTSUninstaller.exe alongside it, then relaunches.
+  Headless — no UI. Waits for PID to exit, swaps FrenchTTS.exe, refreshes
+  the uninstaller alongside it, then relaunches the app.
 """
 
 import argparse
 import ctypes
+import json
 import os
 import shutil
 import subprocess
@@ -94,8 +99,35 @@ def _force_taskbar(window) -> None:
         pass
 
 
+def _new_version() -> str:
+    """Read the version of the bundled FrenchTTS.exe from build_id.txt."""
+    try:
+        with open(_bundled("build_id.txt"), encoding="utf-8") as f:
+            v = f.read().strip()
+        return f"prod-{v}" if v and v != "dev" else "dev"
+    except Exception:
+        return ""
+
+
+def _installed_version() -> str:
+    """Read the currently installed version from the app's config.json."""
+    try:
+        cfg = os.path.join(
+            os.environ.get("APPDATA", os.path.expanduser("~")),
+            APP_NAME, "config.json")
+        with open(cfg, encoding="utf-8") as f:
+            data = json.load(f)
+        # "version" key is written by _save_settings; fall back to last_seen_version
+        v = data.get("version") or data.get("last_seen_version") or ""
+        if not v or v == "dev":
+            return ""
+        return f"prod-{v}" if not v.startswith("prod-") else v
+    except Exception:
+        return ""
+
+
 # ---------------------------------------------------------------------------
-# Update mode  (headless, no UI)
+# Silent update mode  (headless, no UI)
 # ---------------------------------------------------------------------------
 
 def _do_update(pid: int, target: str) -> None:
@@ -103,7 +135,7 @@ def _do_update(pid: int, target: str) -> None:
     _wait_pid(pid)
     _copy_retry(_bundled(f"{APP_NAME}.exe"), target)
 
-    # Refresh the uninstaller alongside the app exe (best-effort)
+    # Refresh uninstaller alongside the app exe (best-effort)
     uninst_src = _bundled(f"{APP_NAME}Uninstaller.exe")
     if os.path.isfile(uninst_src):
         uninst_dst = os.path.join(os.path.dirname(target), f"{APP_NAME}Uninstaller.exe")
@@ -114,27 +146,50 @@ def _do_update(pid: int, target: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Install mode  (CTk splash, matching FrenchTTS DA)
+# Interactive install / update mode  (CTk splash, matching FrenchTTS DA)
 # ---------------------------------------------------------------------------
 
 def _do_install() -> None:
-    """Show a dark splash, run steps, launch the installed app."""
+    """Show a dark CTk splash and run the install or reinstall steps."""
     import customtkinter as ctk
 
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
 
+    # ── Detect mode ──────────────────────────────────────────────────────────
+    target_exe      = os.path.join(INSTALL_DIR, f"{APP_NAME}.exe")
+    target_uninst   = os.path.join(INSTALL_DIR, f"{APP_NAME}Uninstaller.exe")
+    desktop_lnk     = os.path.join(os.path.expanduser("~"), "Desktop", f"{APP_NAME}.lnk")
+    sm_app_lnk      = os.path.join(START_MENU_DIR, f"{APP_NAME}.lnk")
+    sm_uninst_lnk   = os.path.join(START_MENU_DIR, f"Désinstaller {APP_NAME}.lnk")
+    uninst_src      = _bundled(f"{APP_NAME}Uninstaller.exe")
+
+    is_update = os.path.isfile(target_exe)
+    new_v     = _new_version()
+    cur_v     = _installed_version() if is_update else ""
+
+    if is_update:
+        win_title   = f"{APP_NAME} — Mise à jour"
+        if cur_v and new_v:
+            init_status = f"{cur_v}  →  {new_v}"
+        elif new_v:
+            init_status = f"→  {new_v}"
+        else:
+            init_status = "Cliquez sur Mettre à jour pour commencer."
+        btn_label   = "Mettre à jour"
+    else:
+        win_title   = f"{APP_NAME} — Installation"
+        init_status = "Cliquez sur Installer pour commencer."
+        btn_label   = "Installer"
+
     # ── Window ───────────────────────────────────────────────────────────────
     splash = ctk.CTk()
-    splash.title(f"{APP_NAME} — Installation")
+    splash.title(win_title)
     splash.overrideredirect(True)
     splash.resizable(False, False)
     splash.protocol("WM_DELETE_WINDOW", lambda: None)
     splash.configure(padx=40)
-
-    # Size: same width as updater splash; auto-height from content
     splash.geometry("360x1")
-    splash.update_idletasks()
 
     splash.after(150, lambda: splash.wm_attributes("-alpha", 0.93))
     splash.after(200, lambda: _force_taskbar(splash))
@@ -155,7 +210,7 @@ def _do_install() -> None:
 
     splash.destroy = _destroy
 
-    # ── Drag (borderless window) ─────────────────────────────────────────────
+    # ── Drag — whole window draggable (all non-interactive widgets + canvas) ─
     drag = {"x": 0, "y": 0}
 
     def _drag_start(e):
@@ -165,6 +220,16 @@ def _do_install() -> None:
     def _drag_move(e):
         splash.geometry(f"+{e.x_root - drag['x']}+{e.y_root - drag['y']}")
 
+    # Bind drag to the CTk internal canvas (window background) + every widget
+    # that doesn't need its own click handling.
+    def _bind_drag(*widgets):
+        for w in widgets:
+            try:
+                w.bind("<ButtonPress-1>", _drag_start, add="+")
+                w.bind("<B1-Motion>",     _drag_move,  add="+")
+            except Exception:
+                pass
+
     # ── Layout ───────────────────────────────────────────────────────────────
     splash.columnconfigure(0, weight=1)
 
@@ -173,11 +238,9 @@ def _do_install() -> None:
         font=ctk.CTkFont(size=20, weight="bold"),
     )
     title_lbl.grid(row=0, column=0, pady=(28, 6))
-    title_lbl.bind("<ButtonPress-1>", _drag_start)
-    title_lbl.bind("<B1-Motion>",     _drag_move)
 
     status_lbl = ctk.CTkLabel(
-        splash, text="Cliquez sur Installer pour commencer.",
+        splash, text=init_status,
         text_color=("gray50", "gray55"),
         font=ctk.CTkFont(size=11),
     )
@@ -187,25 +250,21 @@ def _do_install() -> None:
     bar.set(0)
     bar.grid(row=2, column=0, pady=(0, 14))
 
-    install_btn = ctk.CTkButton(splash, text="Installer", width=140)
-    install_btn.grid(row=3, column=0, pady=(0, 28))
+    action_btn = ctk.CTkButton(splash, text=btn_label, width=140)
+    action_btn.grid(row=3, column=0, pady=(0, 28))
 
-    # Resize to fit content now that all widgets are placed
+    # Resize window to fit actual content height, then center on screen
     splash.update_idletasks()
     h = splash.winfo_reqheight()
     sw = splash.winfo_screenwidth()
     sh = splash.winfo_screenheight()
     splash.geometry(f"360x{h}+{(sw - 360) // 2}+{(sh - h) // 2}")
 
-    # ── Installation paths ───────────────────────────────────────────────────
-    target_exe      = os.path.join(INSTALL_DIR, f"{APP_NAME}.exe")
-    target_uninst   = os.path.join(INSTALL_DIR, f"{APP_NAME}Uninstaller.exe")
-    desktop_lnk     = os.path.join(os.path.expanduser("~"), "Desktop", f"{APP_NAME}.lnk")
-    sm_app_lnk      = os.path.join(START_MENU_DIR, f"{APP_NAME}.lnk")
-    sm_uninst_lnk   = os.path.join(START_MENU_DIR, f"Désinstaller {APP_NAME}.lnk")
+    # Bind drag AFTER widgets are built (so CTk canvas exists)
+    splash.after(10, lambda: _bind_drag(splash, splash._canvas if hasattr(splash, '_canvas') else splash,
+                                        title_lbl, status_lbl, bar))
 
-    uninst_src = _bundled(f"{APP_NAME}Uninstaller.exe")
-
+    # ── Installation steps ───────────────────────────────────────────────────
     STEPS = [
         ("Copie de FrenchTTS.exe…",
          lambda: _copy_retry(_bundled(f"{APP_NAME}.exe"), target_exe)),
@@ -235,7 +294,8 @@ def _do_install() -> None:
                 splash.after(0, lambda p=frac: bar.set(p))
                 time.sleep(0.2)
 
-            splash.after(0, lambda: status_lbl.configure(text="Installation terminée !"))
+            done = "Mise à jour terminée !" if is_update else "Installation terminée !"
+            splash.after(0, lambda: status_lbl.configure(text=done))
             splash.after(0, lambda: bar.set(1.0))
             splash.after(900, lambda: (
                 subprocess.Popen([target_exe], creationflags=subprocess.DETACHED_PROCESS),
@@ -247,14 +307,14 @@ def _do_install() -> None:
     def _on_error(msg: str) -> None:
         status_lbl.configure(text=f"Erreur : {msg}")
         bar.set(0)
-        install_btn.configure(state="normal")
+        action_btn.configure(state="normal")
 
     def _start() -> None:
-        install_btn.configure(state="disabled")
-        status_lbl.configure(text="Installation en cours…")
+        action_btn.configure(state="disabled")
+        status_lbl.configure(text="En cours…")
         threading.Thread(target=_worker, daemon=True).start()
 
-    install_btn.configure(command=lambda: splash.after(50, _start))
+    action_btn.configure(command=lambda: splash.after(50, _start))
     splash.mainloop()
 
 

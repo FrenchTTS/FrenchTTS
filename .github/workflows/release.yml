@@ -133,6 +133,11 @@ jobs:
           --hidden-import keyboard
           main.py
 
+      # Write build_id.txt so the installer can display version info at runtime
+      - name: Write build_id.txt
+        shell: bash
+        run: printf '%s' "${{ steps.ver.outputs.sha }}" > dist/build_id.txt
+
       # Step 2 — build the uninstaller (tiny, no UI framework; bundled inside installer)
       - name: Build FrenchTTSUninstaller.exe
         run: >
