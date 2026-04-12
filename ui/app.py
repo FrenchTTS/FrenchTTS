@@ -375,11 +375,13 @@ class FrenchTTSApp(ctk.CTk):
                         device_map: dict) -> str | None:
         """Find the best-matching device entry for a saved preference.
 
-        Three-tier priority:
-        1. Exact name match         — covers index changes on the same hardware.
-        2. Case-insensitive substr  — covers minor renames / suffix additions.
-        3. Sounddevice index        — covers complete renames when the position
-                                      is stable (user explicitly renamed device).
+        Index-first priority (stable against renames):
+        1. Sounddevice index        — survives renames; fails only if devices
+                                      are added/removed between sessions.
+        2. Exact name match         — fallback when index shifted (new device
+                                      plugged in, USB hub reordering, etc.).
+        3. Case-insensitive substr  — minor renames / suffix changes
+                                      ("Speakers" still matches "Speakers (Realtek)").
 
         Returns the full ``"N: DeviceName"`` key from *device_map*, or None.
         """
@@ -387,13 +389,20 @@ class FrenchTTSApp(ctk.CTk):
             return None
         strip = self._strip_device_idx
 
-        # 1 — exact name
-        match = next((n for n in device_map if strip(n) == saved_name), None)
-        if match:
-            return match
+        # 1 — index (survives renames)
+        if saved_idx is not None:
+            match = next(
+                (n for n in device_map if device_map[n] == saved_idx), None)
+            if match:
+                return match
 
         if saved_name:
-            # 2 — case-insensitive substring (handles "Speakers" ↔ "Speakers (Realtek)")
+            # 2 — exact name
+            match = next((n for n in device_map if strip(n) == saved_name), None)
+            if match:
+                return match
+
+            # 3 — case-insensitive substring
             sl = saved_name.lower()
             match = next(
                 (n for n in device_map
@@ -401,12 +410,6 @@ class FrenchTTSApp(ctk.CTk):
                 None)
             if match:
                 return match
-
-        # 3 — index fallback
-        if saved_idx is not None:
-            match = next(
-                (n for n in device_map if device_map[n] == saved_idx), None)
-            return match
 
         return None
 
@@ -682,22 +685,32 @@ class FrenchTTSApp(ctk.CTk):
     def _on_close(self) -> None:
         """Redirect the X-button to the system tray instead of quitting.
 
-        Shows a balloon notification once the tray icon is registered so the
-        user knows where the application went.
+        Settings are saved immediately so they survive if the process is
+        killed while the app sits in the tray (no Quitter path reached).
+        Shows a balloon notification once the tray icon is registered.
         """
         if self._in_tray:
             return
+        self._save_settings()
         self._in_tray = True
         self._hide_to_tray()
         self.after(800, self._tray_notify_hidden)
 
     def _tray_notify(self, message: str) -> None:
-        """Send a balloon notification from the active tray icon (no-op if absent)."""
+        """Send a balloon notification.
+
+        Uses the live tray icon when the app is hidden in the tray.
+        Falls back to a temporary icon (send_notification) when the main
+        window is visible and no tray icon exists yet.
+        """
         if self._tray_icon:
             try:
                 self._tray_icon.notify(message, APP_NAME)
+                return
             except Exception:
                 pass
+        from ui.utils import send_notification
+        send_notification(APP_NAME, message)
 
     def _tray_notify_hidden(self) -> None:
         self._tray_notify(
