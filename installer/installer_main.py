@@ -38,9 +38,7 @@ START_MENU_DIR = os.path.join(
     "Microsoft", "Windows", "Start Menu", "Programs", APP_NAME)
 
 
-# ---------------------------------------------------------------------------
 # Shared helpers
-# ---------------------------------------------------------------------------
 
 def _wait_pid(pid: int, timeout_ms: int = 30_000) -> None:
     """Block until the given Windows process exits (or timeout elapses)."""
@@ -126,9 +124,7 @@ def _installed_version() -> str:
         return ""
 
 
-# ---------------------------------------------------------------------------
-# Silent update mode  (headless, no UI)
-# ---------------------------------------------------------------------------
+# Silent update mode — headless, launched by the running app with --pid / --target
 
 def _do_update(pid: int, target: str) -> None:
     """Wait for the old process, swap FrenchTTS.exe, refresh the uninstaller."""
@@ -145,9 +141,7 @@ def _do_update(pid: int, target: str) -> None:
         subprocess.Popen([target], creationflags=subprocess.DETACHED_PROCESS)
 
 
-# ---------------------------------------------------------------------------
-# Interactive install / update mode  (CTk splash, matching FrenchTTS DA)
-# ---------------------------------------------------------------------------
+# Interactive install / update mode — CTk splash window, matches FrenchTTS dark theme
 
 def _do_install() -> None:
     """Show a dark CTk splash and run the install or reinstall steps."""
@@ -156,7 +150,7 @@ def _do_install() -> None:
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
 
-    # ── Detect mode ──────────────────────────────────────────────────────────
+    # Detect whether this is a first install or an update
     target_exe      = os.path.join(INSTALL_DIR, f"{APP_NAME}.exe")
     target_uninst   = os.path.join(INSTALL_DIR, f"{APP_NAME}Uninstaller.exe")
     desktop_lnk     = os.path.join(os.path.expanduser("~"), "Desktop", f"{APP_NAME}.lnk")
@@ -182,7 +176,7 @@ def _do_install() -> None:
         init_status = "Cliquez sur Installer pour commencer."
         btn_label   = "Installer"
 
-    # ── Window ───────────────────────────────────────────────────────────────
+    # Build the borderless splash window
     splash = ctk.CTk()
     splash.title(win_title)
     splash.overrideredirect(True)
@@ -194,7 +188,7 @@ def _do_install() -> None:
     splash.after(150, lambda: splash.wm_attributes("-alpha", 0.93))
     splash.after(200, lambda: _force_taskbar(splash))
 
-    # ── Cancel pending after() callbacks on close (silence CTk internals) ────
+    # Wrap destroy() to cancel pending after() callbacks and silence CTk internals
     _orig_destroy = splash.destroy
 
     def _destroy() -> None:
@@ -210,7 +204,7 @@ def _do_install() -> None:
 
     splash.destroy = _destroy
 
-    # ── Drag — whole window draggable (all non-interactive widgets + canvas) ─
+    # Drag support — entire window is draggable via non-interactive widgets
     drag = {"x": 0, "y": 0}
 
     def _drag_start(e):
@@ -228,7 +222,7 @@ def _do_install() -> None:
             except Exception:
                 pass
 
-    # ── Layout ───────────────────────────────────────────────────────────────
+    # Lay out the splash content (title, status, progress bar, action button)
     splash.columnconfigure(0, weight=1)
 
     title_lbl = ctk.CTkLabel(
@@ -264,7 +258,7 @@ def _do_install() -> None:
     _bg = getattr(splash, "_canvas", splash)
     _bind_drag(_bg, title_lbl, status_lbl, bar)
 
-    # ── Installation steps ───────────────────────────────────────────────────
+    # Ordered installation steps: each is a (display label, callable) pair
     STEPS = [
         ("Copie de FrenchTTS.exe…",
          lambda: _copy_retry(_bundled(f"{APP_NAME}.exe"), target_exe)),
@@ -282,7 +276,7 @@ def _do_install() -> None:
         )),
     ]
 
-    # ── Worker thread ────────────────────────────────────────────────────────
+    # Worker thread — runs steps sequentially and updates the UI via after()
     def _worker() -> None:
         try:
             os.makedirs(INSTALL_DIR, exist_ok=True)
@@ -318,9 +312,7 @@ def _do_install() -> None:
     splash.mainloop()
 
 
-# ---------------------------------------------------------------------------
 # Entry point
-# ---------------------------------------------------------------------------
 
 def main() -> None:
     ap = argparse.ArgumentParser(add_help=False)

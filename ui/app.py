@@ -58,7 +58,7 @@ class FrenchTTSApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        # --- Internal state -------------------------------------------------
+        # Internal state
         # _stop_event is set by _on_stop / _shutdown to abort ongoing audio.
         # Worker threads check it at every async yield point.
         self._stop_event = threading.Event()
@@ -94,14 +94,14 @@ class FrenchTTSApp(ctk.CTk):
         self._hk_stop        = None # keyboard-lib hotkey handle for global stop
         self._hk_stt         = None # keyboard-lib hotkey handle for STT toggle
 
-        # --- STT state ------------------------------------------------------
+        # STT state
         # _stt_triggered_tts is set to True by _apply_transcript so the
         # auto-restart logic knows the TTS came from STT, not a manual input.
         self._stt_state         = "idle"  # "idle"|"listening"|"recording"|"transcribing"
         self._listener:         STTListener | None = None
         self._stt_triggered_tts = False
 
-        # --- Text input history (Up/Down navigation) ------------------------
+        # Text input history — Up/Down key navigation, shell-style
         # Mirrors the behaviour of a shell: Up walks backwards through
         # previously spoken texts, Down returns toward the present.
         # _draft saves whatever the user was typing before they started
@@ -110,7 +110,8 @@ class FrenchTTSApp(ctk.CTk):
         self._history_idx: int       = 0   # points past the end when not navigating
         self._draft:       str       = ""
 
-        # --- Tkinter vars shared with SettingsWindow ------------------------
+        # Tkinter vars shared with SettingsWindow — declared before _build_ui so
+        # SettingsWindow can bind to them before the UI is fully constructed
         # These are declared here (not in _build_ui) so SettingsWindow can
         # bind to them before the UI is fully constructed.
         self.voice_var        = ctk.StringVar(value=list(VOICES.keys())[0])
@@ -136,7 +137,7 @@ class FrenchTTSApp(ctk.CTk):
         self.max_memory_var       = ctk.IntVar(value=1024)
         self._last_seen_version: str = ""   # loaded by _load_settings
 
-        # --- Boot sequence --------------------------------------------------
+        # Boot sequence
         self._build_ui()
         # Let Tkinter compute widget sizes before locking the geometry.
         self.update_idletasks()
@@ -175,7 +176,7 @@ class FrenchTTSApp(ctk.CTk):
         self.after(150, lambda: apply_window_transparency(self, self.opacity_var.get()))
         self.after(800, self._check_whats_new)
 
-    # --- UI -----------------------------------------------------------------
+    # UI construction
 
     def _build_ui(self) -> None:
         """Construct the main window widgets.
@@ -191,7 +192,7 @@ class FrenchTTSApp(ctk.CTk):
         """
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
-        self.title(f"{APP_NAME} — Synthèse vocale")
+        self.title(APP_NAME)
         self.geometry("490x1")   # height=1 → auto-sized after build
         self.columnconfigure(0, weight=1)
 
@@ -305,7 +306,7 @@ class FrenchTTSApp(ctk.CTk):
             font=ctk.CTkFont(size=10)
         ).grid(row=0, column=2)
 
-    # --- Devices ------------------------------------------------------------
+    # Device enumeration
 
     def _populate_input_devices(self, widget=None) -> None:
         """Rebuild the audio input device list from sounddevice.
@@ -384,7 +385,7 @@ class FrenchTTSApp(ctk.CTk):
                 if hasattr(sw, "monitor_device_menu"):
                     sw.monitor_device_menu.configure(values=names or ["Aucun périphérique"])
 
-    # --- Config -------------------------------------------------------------
+    # Config persistence
 
     def _resolve_device(self, saved_name: str, saved_idx,
                         device_map: dict) -> str | None:
@@ -599,7 +600,7 @@ class FrenchTTSApp(ctk.CTk):
         """Apply the max_memory_var setting via SetProcessWorkingSetSizeEx."""
         set_process_memory_limit(self.max_memory_var.get())
 
-    # --- What's New ---------------------------------------------------------
+    # What's New changelog dialog
 
     def _check_whats_new(self) -> None:
         """Show the What's New dialog if the build changed since last launch."""
@@ -632,7 +633,7 @@ class FrenchTTSApp(ctk.CTk):
         except FileNotFoundError:
             return ""
 
-    # --- Replay key ---------------------------------------------------------
+    # Hotkey binding
 
     def _bind_replay_key(self) -> None:
         """Update the Tkinter window binding and button label for the replay hotkey.
@@ -747,7 +748,7 @@ class FrenchTTSApp(ctk.CTk):
         except Exception:
             pass
 
-    # --- Settings window ----------------------------------------------------
+    # Settings window
 
     def _open_settings(self) -> None:
         """Open the settings window, or focus it if already open.
@@ -760,7 +761,7 @@ class FrenchTTSApp(ctk.CTk):
             return
         self._settings_win = SettingsWindow(self)
 
-    # --- System tray --------------------------------------------------------
+    # System tray (minimize-to-tray)
 
     def _on_close(self) -> None:
         """Redirect the X-button to the system tray instead of quitting.
@@ -847,7 +848,7 @@ class FrenchTTSApp(ctk.CTk):
         self.after(50,  self.lift)
         self.after(200, lambda: apply_window_transparency(self, self.opacity_var.get()))
 
-    # --- UI handlers --------------------------------------------------------
+    # UI event handlers
 
     def _on_enter_key(self, event) -> str:
         """Trigger speech on Return and suppress the default newline insertion."""
@@ -896,7 +897,7 @@ class FrenchTTSApp(ctk.CTk):
         self._set_status(STATUS_PLAYING)
         self._run_worker(self._replay_async)
 
-    # --- STT / Microphone ---------------------------------------------------
+    # STT / microphone pipeline
 
     def _on_mic_toggle(self) -> None:
         """Start VAD listening, or cancel if already in progress.
@@ -1080,7 +1081,7 @@ class FrenchTTSApp(ctk.CTk):
             state="normal" if os.path.exists(LAST_MP3) else "disabled"))
         self._set_status(STATUS_READY)
 
-    # --- Text history -------------------------------------------------------
+    # Text history navigation
 
     def _load_history(self) -> None:
         """Deserialise lasts.log into self._history and reset the index.
@@ -1154,7 +1155,7 @@ class FrenchTTSApp(ctk.CTk):
         self.text_box.delete("1.0", "end")
         self.text_box.insert("1.0", text)
 
-    # --- TTS / Playback -----------------------------------------------------
+    # TTS pipeline and audio playback
 
     def _run_worker(self, coro_factory) -> None:
         """Submit a TTS coroutine to the persistent event loop.
@@ -1243,7 +1244,7 @@ class FrenchTTSApp(ctk.CTk):
         sd.play(pcm, samplerate=samplerate, device=primary_idx,
                 blocking=False, latency='low')
 
-        # --- Optional monitor stream ----------------------------------------
+        # Optional monitor stream — simultaneous playback on a second device
         monitor_stream = None
         monitor_thread = None
         if self.monitor_enabled_var.get():
@@ -1268,7 +1269,7 @@ class FrenchTTSApp(ctk.CTk):
                     monitor_stream = None
                     monitor_thread = None
 
-        # --- Wait in executor: 5 ms resolution, event loop stays free -------
+        # Wait in executor — 5 ms polling keeps the event loop free for cancel signals
         stop = self._stop_event
 
         def _wait() -> bool:

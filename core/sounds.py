@@ -11,10 +11,6 @@ import threading
 import winsound
 
 
-# ---------------------------------------------------------------------------
-# Path resolution
-# ---------------------------------------------------------------------------
-
 def _audio_dir() -> str:
     base = sys._MEIPASS if getattr(sys, "frozen", False) \
            else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -27,10 +23,6 @@ SND_RECOGNIZING    = os.path.join(AUDIO_DIR, "recognizing.wav")
 SND_RECOGNIZED     = os.path.join(AUDIO_DIR, "recognized.wav")
 SND_NOT_RECOGNIZED = os.path.join(AUDIO_DIR, "not_recognized.wav")
 
-
-# ---------------------------------------------------------------------------
-# Playback
-# ---------------------------------------------------------------------------
 
 def play_sound(path: str) -> None:
     """Play a WAV file asynchronously on the Windows default audio output.

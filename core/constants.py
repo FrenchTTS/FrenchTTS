@@ -10,13 +10,9 @@ import sys
 
 from core.version import BUILD_ID
 
-# ---------------------------------------------------------------------------
-# Paths
-#
-# All user data lives under %APPDATA%\FrenchTTS so the app never writes
-# next to its own executable (important for UAC-restricted installs and
-# the PyInstaller bundle, which may unpack to Program Files).
-# ---------------------------------------------------------------------------
+# Paths — all user data lives under %APPDATA%\FrenchTTS.
+# The app never writes next to its own exe (UAC-restricted installs,
+# PyInstaller bundles that unpack to Program Files are both supported).
 
 APPDATA     = os.environ.get("APPDATA", os.path.expanduser("~"))
 BASE_DIR    = os.path.join(APPDATA, "FrenchTTS")
@@ -27,14 +23,10 @@ HISTORY_LOG = os.path.join(HISTORY_DIR, "lasts.log")  # JSON array of past texts
 os.makedirs(BASE_DIR,    exist_ok=True)
 os.makedirs(HISTORY_DIR, exist_ok=True)
 
-# ---------------------------------------------------------------------------
-# Application identity
-#
-# Single source of truth for the name and public URL.
+# Application identity — single source of truth for name, URL, and version.
 # BUILD_ID comes from core/version.py: "dev" in source, a 7-char commit SHA
-# in a frozen exe (written by the GitHub Actions workflow before building).
+# in a frozen exe (injected by the GitHub Actions workflow before building).
 # APP_VERSION_DISPLAY is shown in the copyright footer.
-# ---------------------------------------------------------------------------
 
 # Keys are the display names shown in the settings dropdown.
 # Values are passed verbatim to edge_tts.Communicate as the ``voice`` param.
@@ -67,9 +59,7 @@ APP_VERSION_DISPLAY = (
 
 GITHUB_REPO = "FrenchTTS/FrenchTTS"  # owner/repo for the GitHub Releases API
 
-# ---------------------------------------------------------------------------
-# UI state
-# ---------------------------------------------------------------------------
+# UI status strings
 
 STATUS_READY   = "Prêt"
 STATUS_LOADING = "Chargement..."
@@ -123,13 +113,9 @@ _BTN_SECONDARY = dict(
     border_color=("gray60", "#454545"),
 )
 
-# ---------------------------------------------------------------------------
-# Formatters
-#
-# edge-tts expects signed string params like "+20%", "-10Hz".
-# These converters are shared between SettingsWindow (live slider labels)
-# and FrenchTTSApp (building the Communicate call).
-# ---------------------------------------------------------------------------
+# Formatters — edge-tts expects signed string params like "+20%" or "-10Hz".
+# Shared between SettingsWindow (live slider labels) and FrenchTTSApp
+# (building the Communicate call).
 
 def _fmt_signed(v: int, unit: str) -> str:
     """Return a signed string such as '+20%' or '-10Hz'."""
@@ -139,9 +125,7 @@ fmt_rate   = lambda v: _fmt_signed(int(v), "%")
 fmt_pitch  = lambda v: _fmt_signed(int(v), "Hz")
 fmt_volume = lambda v: f"{int(v)}%"
 
-# ---------------------------------------------------------------------------
-# STT (Speech-to-Text) — faster-whisper configuration
-# ---------------------------------------------------------------------------
+# STT (Speech-to-Text) — faster-whisper model configuration
 
 STT_MODEL_DIR   = os.path.join(BASE_DIR, "stt_models")
 STT_MODEL_SIZE  = "small"   # "tiny" | "base" | "small"

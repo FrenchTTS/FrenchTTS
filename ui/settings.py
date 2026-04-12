@@ -12,7 +12,7 @@ from core.constants import (APP_NAME, VOICES, _BTN_SECONDARY,
 from ui.utils import _set_window_icon, apply_window_transparency, _safe_open, force_taskbar_presence
 
 _WIN_W = 560   # settings window width
-_MAX_H = 760   # maximum settings window height before the scrollbar kicks in
+_MAX_H = 960   # maximum settings window height before the scrollbar kicks in
 
 
 class SettingsWindow(ctk.CTkToplevel):
@@ -45,9 +45,11 @@ class SettingsWindow(ctk.CTkToplevel):
         self._capture_btn  = None
         self._capture_post = None
         self._build()
-        self.update_idletasks()
-        h = min(self.winfo_reqheight(), _MAX_H)
-        self.geometry(f"{_WIN_W}x{h}")
+        # CTkScrollableFrame.winfo_reqheight() reflects its minimum intrinsic
+        # size, not its content height, so min(reqheight, _MAX_H) would always
+        # resolve to the small minimum. Set the fixed cap directly instead; the
+        # scrollbar handles content overflow and the footer stays anchored.
+        self.geometry(f"{_WIN_W}x{_MAX_H}")
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         _set_window_icon(self)
         self.after(50,  self.lift)
@@ -70,8 +72,6 @@ class SettingsWindow(ctk.CTkToplevel):
             pass
         super().destroy()
 
-    # --- Layout -------------------------------------------------------------
-
     def _build(self) -> None:
         """Build the settings layout.
 
@@ -86,12 +86,12 @@ class SettingsWindow(ctk.CTkToplevel):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)   # scroll frame expands vertically
 
-        # ── Fixed header ────────────────────────────────────────────────────
+        # Header label — fixed above the scroll frame, always visible
         ctk.CTkLabel(self, text="Paramètres",
                      font=ctk.CTkFont(size=16, weight="bold")
                      ).grid(row=0, column=0, pady=(14, 6))
 
-        # ── Scrollable content ───────────────────────────────────────────────
+        # Scrollable content frame — all setting sections live inside this
         frm = ctk.CTkScrollableFrame(
             self, corner_radius=0, border_width=0, fg_color="transparent")
         frm.grid(row=1, column=0, sticky="nsew")
@@ -103,7 +103,6 @@ class SettingsWindow(ctk.CTkToplevel):
         LBL = dict(padx=(16, 8), pady=5, sticky="w")
         CTL = dict(padx=(0, 14), pady=5)
 
-        # ── Section: Voice & Devices ─────────────────────────────────────────
         self._section_label(row=0, text="Voix & Périphériques")
 
         ctk.CTkLabel(frm, text="Voix :").grid(row=1, column=0, **LBL)
@@ -139,7 +138,6 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self._separator(row=4)
 
-        # ── Section: Voice settings ───────────────────────────────────────────
         self._section_label(row=5, text="Paramètres vocaux")
 
         for r, label, var, lo, hi, fmt in [
@@ -152,7 +150,6 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self._separator(row=9)
 
-        # ── Section: Interface ────────────────────────────────────────────────
         self._section_label(row=10, text="Interface")
 
         ctk.CTkLabel(frm, text="Opacité :").grid(row=11, column=0, **LBL)
@@ -170,7 +167,6 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self._separator(row=12)
 
-        # ── Section: Keyboard shortcuts ───────────────────────────────────────
         self._section_label(row=13, text="Raccourcis clavier")
 
         self._replay_key_lbl, self._replay_key_btn = self._hotkey_row(
@@ -189,7 +185,6 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self._separator(row=16)
 
-        # ── Section: STT ─────────────────────────────────────────────────────
         self._section_label(row=17, text="STT — Reconnaissance vocale")
         ctk.CTkLabel(
             frm,
@@ -252,8 +247,7 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self._separator(row=24)
 
-        # ── Section: Performances ─────────────────────────────────────────────
-        # Custom two-label header: bold title + small wink hint side by side
+        # Performances — custom two-label header: bold title + small wink hint
         hdr_frame = ctk.CTkFrame(frm, fg_color="transparent")
         hdr_frame.grid(row=25, column=0, columnspan=3, padx=16, pady=(8, 0), sticky="w")
         ctk.CTkLabel(
@@ -267,7 +261,7 @@ class SettingsWindow(ctk.CTkToplevel):
             text_color=("gray60", "gray50"),
         ).grid(row=0, column=1, pady=(2, 0))
 
-        # ── CPU core throttle ─────────────────────────────────────────────────
+        # CPU core throttle — limits how many logical CPUs the process may use
         ncpus = os.cpu_count() or 1
         ctk.CTkLabel(frm, text="Cœurs CPU :").grid(row=26, column=0, **LBL)
         cpu_frame = ctk.CTkFrame(frm, fg_color="transparent")
@@ -293,7 +287,7 @@ class SettingsWindow(ctk.CTkToplevel):
             anchor="w",
         ).grid(row=27, column=0, columnspan=3, padx=16, pady=(0, 6), sticky="w")
 
-        # ── Process priority ──────────────────────────────────────────────────
+        # Process priority — maps to Windows SetPriorityClass
         priority_labels = list(PROCESS_PRIORITY_LABELS.values())
         ctk.CTkLabel(frm, text="Priorité CPU :").grid(row=28, column=0, **LBL)
         ctk.CTkOptionMenu(
@@ -313,9 +307,8 @@ class SettingsWindow(ctk.CTkToplevel):
             justify="left",
         ).grid(row=29, column=0, columnspan=3, padx=16, pady=(0, 6), sticky="w")
 
-        # ── RAM working-set cap ───────────────────────────────────────────────
-        # Slider: 256 → 4096 MB in steps of 256 (16 positions, 15 steps).
-        # 4096 is displayed as "Illimité" and removes any working-set limit.
+        # RAM working-set cap — slider 256→4096 MB in 256-step increments.
+        # Selecting 4096 displays "Illimité" and removes any working-set limit.
         ctk.CTkLabel(frm, text="RAM max :").grid(row=30, column=0, **LBL)
         ram_frame = ctk.CTkFrame(frm, fg_color="transparent")
         ram_frame.grid(row=30, column=1, columnspan=2, sticky="ew", **CTL)
@@ -341,7 +334,7 @@ class SettingsWindow(ctk.CTkToplevel):
             anchor="w",
         ).grid(row=31, column=0, columnspan=3, padx=16, pady=(0, 6), sticky="w")
 
-        # ── Fixed footer ────────────────────────────────────────────────────
+        # Footer buttons — fixed below the scroll frame, always visible
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.grid(row=2, column=0, pady=(8, 12))
         ctk.CTkButton(btn_frame, text="Dossier config", width=140,
@@ -352,7 +345,7 @@ class SettingsWindow(ctk.CTkToplevel):
                       command=self.destroy
                       ).grid(row=0, column=1)
 
-    # --- Widget helpers (all target self._frm) --------------------------------
+    # Widget helpers — all build widgets inside self._frm (the scroll frame)
 
     def _hotkey_row(self, row: int, label: str, var: ctk.StringVar,
                     post_fn, lbl_kw: dict, ctl_kw: dict):
@@ -395,7 +388,7 @@ class SettingsWindow(ctk.CTkToplevel):
                       ).grid(row=0, column=0, sticky="ew", padx=(0, 8))
         lbl.grid(row=0, column=1)
 
-    # --- Event handlers -------------------------------------------------------
+    # Event handlers
 
     @staticmethod
     def _fmt_cores(n: int, total: int) -> str:

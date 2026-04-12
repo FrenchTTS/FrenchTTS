@@ -16,9 +16,7 @@ import pystray
 from PIL import Image, ImageDraw
 
 
-# ---------------------------------------------------------------------------
 # Icon helpers
-# ---------------------------------------------------------------------------
 
 def _get_icon_path() -> str | None:
     """Return the absolute path to ``img/icon.ico``, or None if not found.
@@ -86,19 +84,11 @@ def make_tray_image() -> Image.Image:
     return img
 
 
-# ---------------------------------------------------------------------------
-# Windows acrylic blur
-#
-# ``SetWindowCompositionAttribute`` is an undocumented Win32 API available
-# from Windows 10 build 1803 onward. We use attribute 19 (WCA_ACCENT_POLICY)
-# with accent state 4 (ACCENT_ENABLE_ACRYLICBLURBEHIND).
-#
-# GradientColor is an ABGR 32-bit integer. The default 0xD0202020 gives a
-# semi-transparent dark overlay (alpha=0xD0 ≈ 82%) on top of the blur.
-#
-# The entire call is wrapped in try/except so the app runs gracefully on
-# builds that do not support the API (older Win10, Wine, etc.).
-# ---------------------------------------------------------------------------
+# Windows acrylic blur via SetWindowCompositionAttribute (undocumented Win32,
+# available from Windows 10 build 1803). Attribute 19 = WCA_ACCENT_POLICY,
+# accent state 4 = ACCENT_ENABLE_ACRYLICBLURBEHIND.
+# GradientColor is ABGR 32-bit; 0xD0202020 = semi-transparent dark overlay.
+# Wrapped in try/except so the app degrades gracefully on older builds or Wine.
 
 class _AccentPolicy(ctypes.Structure):
     _fields_ = [("AccentState",   ctypes.c_uint),

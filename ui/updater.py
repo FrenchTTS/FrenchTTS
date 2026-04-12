@@ -24,10 +24,6 @@ from core.version import BUILD_ID
 from ui.utils import apply_window_transparency, force_taskbar_presence, send_notification
 
 
-# ---------------------------------------------------------------------------
-# Self-replacement
-# ---------------------------------------------------------------------------
-
 def _apply_update(installer_exe: str) -> bool:
     """Launch FrenchTTSInstaller.exe to replace this exe.
 
@@ -54,10 +50,6 @@ def _apply_update(installer_exe: str) -> bool:
             pass
         return False
 
-
-# ---------------------------------------------------------------------------
-# Updater splash
-# ---------------------------------------------------------------------------
 
 class UpdaterSplash(ctk.CTk):
     """Lightweight splash shown before the main app window when running as .exe.
@@ -101,7 +93,7 @@ class UpdaterSplash(ctk.CTk):
         self.after(200, lambda: force_taskbar_presence(self))
         self.after(300, self._start_check)
 
-    # --- Layout -------------------------------------------------------------
+    # Layout
 
     def destroy(self) -> None:
         """Cancel all pending after() callbacks before destroying the window.
@@ -188,7 +180,7 @@ class UpdaterSplash(ctk.CTk):
         y = (self.winfo_screenheight() - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
 
-    # --- Window drag (no native title bar) ----------------------------------
+    # Window drag — borderless window moved via button-press/motion bindings
 
     def _on_drag_start(self, event) -> None:
         self._drag_x = event.x_root - self.winfo_x()
@@ -197,7 +189,7 @@ class UpdaterSplash(ctk.CTk):
     def _on_drag_move(self, event) -> None:
         self.geometry(f"+{event.x_root - self._drag_x}+{event.y_root - self._drag_y}")
 
-    # --- Error state --------------------------------------------------------
+    # Error state — show/hide the retry panel
 
     def _show_error(self, message: str) -> None:
         """Switch the splash into error state with a Réessayer / Continuer prompt."""
@@ -232,7 +224,7 @@ class UpdaterSplash(ctk.CTk):
             self._tmp_dir = None
         self.destroy()
 
-    # --- Update check -------------------------------------------------------
+    # Update check
 
     def _start_check(self) -> None:
         threading.Thread(target=self._check_worker, daemon=True).start()
@@ -252,7 +244,7 @@ class UpdaterSplash(ctk.CTk):
             self._simulate_download()
             return
 
-        # --- Real check -----------------------------------------------------
+        # Real check — call the GitHub Releases API
         try:
             url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
             req = urllib.request.Request(url, headers={"User-Agent": APP_NAME})
@@ -301,7 +293,7 @@ class UpdaterSplash(ctk.CTk):
         self.after(0, lambda: self._status_lbl.configure(text="À jour."))
         self.after(600, self.destroy)
 
-    # --- Download -----------------------------------------------------------
+    # Download
 
     def _download(self, url: str, total_size: int) -> None:
         """Download FrenchTTSInstaller.exe in 8 KB chunks (runs on the check thread).
@@ -353,7 +345,7 @@ class UpdaterSplash(ctk.CTk):
                 "Erreur lors du téléchargement."))
             return
 
-        # --- Integrity checks -----------------------------------------------
+        # Integrity checks — size and PE-header magic bytes
         if total_size > 0:
             actual = os.path.getsize(new_file)
             if actual != total_size:

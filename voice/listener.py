@@ -37,9 +37,8 @@ from core.constants import (
 )
 
 
-# ---------------------------------------------------------------------------
-# VAD constants
-# ---------------------------------------------------------------------------
+# VAD tuning constants — these govern how quickly speech onset and end-of-speech
+# are detected; all timing comments assume STT_SAMPLE_RATE = 16 kHz.
 
 BLOCKSIZE         = 1024  # frames per PortAudio callback  (~64 ms at 16 kHz)
 SPEECH_THR        = 0.012 # RMS energy threshold to classify a block as speech
@@ -49,9 +48,7 @@ PREROLL_FRAMES    = 5     # blocks kept before speech onset for context (~320 ms
 MAX_RECORD_FRAMES = int(30 * STT_SAMPLE_RATE / BLOCKSIZE)  # auto-stop after 30 s
 
 
-# ---------------------------------------------------------------------------
-# Whisper model singleton
-# ---------------------------------------------------------------------------
+# Whisper model singleton — loaded once on first use, reused for every transcription
 
 _model: "WhisperModel | None" = None
 _model_lock = threading.Lock()
@@ -80,9 +77,6 @@ def _get_model(model_size: str = STT_MODEL_SIZE) -> WhisperModel:
     return _model
 
 
-# ---------------------------------------------------------------------------
-# STTListener
-# ---------------------------------------------------------------------------
 
 class STTListener:
     """Manages microphone capture and background transcription.
@@ -136,7 +130,7 @@ class STTListener:
         self._audio_chunks:   list = []
         self._vad_done:       threading.Event = threading.Event()
 
-    # --- Public API (called from the main thread) ---------------------------
+    # Public API — all methods below are called from the main (Tkinter) thread
 
     @property
     def is_busy(self) -> bool:
@@ -175,7 +169,7 @@ class STTListener:
         if self._state != "idle":
             self._set_state("idle")
 
-    # --- VAD callback (PortAudio thread) ------------------------------------
+    # VAD callback — runs on the PortAudio internal thread, no blocking ops allowed
 
     def _vad_callback(self, indata: np.ndarray, frames: int,
                       time_info, status) -> None:
@@ -222,7 +216,7 @@ class STTListener:
             if len(self._speech_chunks) >= MAX_RECORD_FRAMES:
                 self._vad_done.set()
 
-    # --- Watcher thread (daemon) --------------------------------------------
+    # Watcher thread — daemon that waits for VAD end-of-speech signal
 
     def _vad_watcher(self) -> None:
         """Wait for end-of-speech detected by VAD, then transcribe.
@@ -241,7 +235,7 @@ class STTListener:
         self._set_state("transcribing")
         threading.Thread(target=self._transcribe_worker, daemon=True).start()
 
-    # --- Transcription (daemon) ---------------------------------------------
+    # Transcription worker — daemon thread that runs Whisper and delivers results
 
     def _transcribe_worker(self) -> None:
         """Concatenate audio chunks, call Whisper, deliver the result.
@@ -308,7 +302,7 @@ class STTListener:
         else:
             self._on_not_recognized()
 
-    # --- Internal helpers ---------------------------------------------------
+    # Internal helpers
 
     def _reset_vad(self) -> None:
         """Reset all VAD counters and buffers before a new listening session."""
