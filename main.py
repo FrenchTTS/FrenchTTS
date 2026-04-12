@@ -16,30 +16,13 @@ ui/app.py         — FrenchTTSApp (main window + TTS pipeline)
 voice/listener.py — mic capture → faster-whisper STT → TTS pipeline
 """
 
-import ctypes
 import sys
 
 from ui.updater import UpdaterSplash
 from ui.app import FrenchTTSApp
 
 
-def _set_app_id() -> None:
-    """Tell Windows to attribute taskbar groups and notifications to APP_NAME.
-
-    Without this, balloon tips and the Action Centre show the host process
-    name ("Python" in dev, the correct exe name only when frozen).
-    SetCurrentProcessExplicitAppUserModelID must be called before any window
-    or tray icon is created to take effect for the whole session.
-    """
-    try:
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-            "FrenchTTS.App")
-    except Exception:
-        pass
-
-
 def main() -> None:
-    _set_app_id()
     # The updater splash runs when frozen (.exe) or when --update is passed on
     # the command line (dev testing only). In normal dev mode it is skipped so
     # developers are never blocked by a version check on every run.
@@ -48,7 +31,7 @@ def main() -> None:
         splash = UpdaterSplash()
         splash.mainloop()
         if not splash._launch_app:
-            return  # update applied; the .bat will relaunch the new executable
+            return  # update applied; the installer will relaunch the new exe
     app = FrenchTTSApp()
     app.mainloop()
 
