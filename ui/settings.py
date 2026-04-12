@@ -216,7 +216,7 @@ class SettingsWindow(ctk.CTkToplevel):
         ).grid(row=0, column=0, sticky="w")
         ctk.CTkLabel(
             stt_notif_frame,
-            text="Affiche le texte reconnu en notification (tray)",
+            text="Affiche le texte reconnu en notification",
             font=ctk.CTkFont(size=10),
             text_color=("gray50", "gray50"),
         ).grid(row=0, column=1, padx=(8, 0), sticky="w")

@@ -371,6 +371,45 @@ class FrenchTTSApp(ctk.CTk):
 
     # --- Config -------------------------------------------------------------
 
+    def _resolve_device(self, saved_name: str, saved_idx,
+                        device_map: dict) -> str | None:
+        """Find the best-matching device entry for a saved preference.
+
+        Three-tier priority:
+        1. Exact name match         — covers index changes on the same hardware.
+        2. Case-insensitive substr  — covers minor renames / suffix additions.
+        3. Sounddevice index        — covers complete renames when the position
+                                      is stable (user explicitly renamed device).
+
+        Returns the full ``"N: DeviceName"`` key from *device_map*, or None.
+        """
+        if not saved_name and saved_idx is None:
+            return None
+        strip = self._strip_device_idx
+
+        # 1 — exact name
+        match = next((n for n in device_map if strip(n) == saved_name), None)
+        if match:
+            return match
+
+        if saved_name:
+            # 2 — case-insensitive substring (handles "Speakers" ↔ "Speakers (Realtek)")
+            sl = saved_name.lower()
+            match = next(
+                (n for n in device_map
+                 if sl in strip(n).lower() or strip(n).lower() in sl),
+                None)
+            if match:
+                return match
+
+        # 3 — index fallback
+        if saved_idx is not None:
+            match = next(
+                (n for n in device_map if device_map[n] == saved_idx), None)
+            return match
+
+        return None
+
     @staticmethod
     def _strip_device_idx(name: str) -> str:
         """Strip the leading 'N: ' sounddevice index prefix for stable storage.
@@ -403,12 +442,11 @@ class FrenchTTSApp(ctk.CTk):
 
         strip = self._strip_device_idx
 
-        # Output device — match by name, ignoring index prefix
-        saved = strip(cfg["device"])
-        if saved:
-            match = next((n for n in self._device_map if strip(n) == saved), None)
-            if match:
-                self.device_var.set(match)
+        # Output device
+        match = self._resolve_device(
+            strip(cfg.get("device", "")), cfg.get("device_idx"), self._device_map)
+        if match:
+            self.device_var.set(match)
 
         self.rate_var.set(cfg["rate"])
         self.volume_var.set(cfg["volume"])
@@ -419,11 +457,12 @@ class FrenchTTSApp(ctk.CTk):
         self.stt_enabled_var.set(bool(cfg.get("stt_enabled", True)))
 
         # STT input device
-        saved_in = strip(cfg.get("stt_input_device", ""))
-        if saved_in:
-            match = next((n for n in self._input_device_map if strip(n) == saved_in), None)
-            if match:
-                self.stt_input_var.set(match)
+        match = self._resolve_device(
+            strip(cfg.get("stt_input_device", "")),
+            cfg.get("stt_input_idx"),
+            self._input_device_map)
+        if match:
+            self.stt_input_var.set(match)
 
         # Apply saved STT enabled state to the button
         if not self.stt_enabled_var.get():
@@ -436,11 +475,12 @@ class FrenchTTSApp(ctk.CTk):
         self.monitor_enabled_var.set(bool(cfg.get("monitor_enabled", False)))
 
         # Monitor device
-        saved_mon = strip(cfg.get("monitor_device", ""))
-        if saved_mon:
-            match = next((n for n in self._device_map if strip(n) == saved_mon), None)
-            if match:
-                self.monitor_device_var.set(match)
+        match = self._resolve_device(
+            strip(cfg.get("monitor_device", "")),
+            cfg.get("monitor_idx"),
+            self._device_map)
+        if match:
+            self.monitor_device_var.set(match)
 
         self._last_seen_version = str(cfg.get("last_seen_version", ""))
 
@@ -462,6 +502,7 @@ class FrenchTTSApp(ctk.CTk):
         payload = json.dumps({
             "voice":             self.voice_var.get(),
             "device":            strip(self.device_var.get()),
+            "device_idx":        self._device_map.get(self.device_var.get()),
             "rate":              self.rate_var.get(),
             "volume":            self.volume_var.get(),
             "pitch":             self.pitch_var.get(),
@@ -470,8 +511,10 @@ class FrenchTTSApp(ctk.CTk):
             "stop_key":          self.stop_key_var.get(),
             "stt_enabled":       self.stt_enabled_var.get(),
             "stt_input_device":  strip(self.stt_input_var.get()),
+            "stt_input_idx":     self._input_device_map.get(self.stt_input_var.get()),
             "monitor_enabled":   self.monitor_enabled_var.get(),
             "monitor_device":    strip(self.monitor_device_var.get()),
+            "monitor_idx":       self._device_map.get(self.monitor_device_var.get()),
             "stt_key":           self.stt_key_var.get(),
             "stt_auto_restart":  self.stt_auto_restart_var.get(),
             "stt_notify":        self.stt_notify_var.get(),
@@ -864,7 +907,7 @@ class FrenchTTSApp(ctk.CTk):
         """
         play_sound(SND_RECOGNIZED)
         self._set_textbox(text)
-        if self._in_tray and self.stt_notify_var.get():
+        if self.stt_notify_var.get():
             self._tray_notify(text)
         self._stt_triggered_tts = True
         self._on_speak()
