@@ -6,6 +6,7 @@ import asyncio
 import datetime
 import json
 import os
+import sys
 import tempfile
 import threading
 import webbrowser
@@ -148,8 +149,12 @@ class FrenchTTSApp(ctk.CTk):
         self._load_history()
         self._bind_replay_key()      # must run after _load_settings sets replay_key_var
         self._bind_stop_key()
-        self._bind_stt_key()         # must run after _load_settings sets stt_key_var
-        self._bind_global_hotkeys()  # register replay+stop hotkeys system-wide
+        self._bind_stt_key()         # respects stt_enabled_var — no bind if STT off
+        self._bind_global_hotkeys()  # same
+
+        # Recompute height: _load_settings may have hidden the STT button
+        self.update_idletasks()
+        self.geometry(f"490x{self.winfo_reqheight()}")
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.bind("<Unmap>", self._on_unmap)
@@ -609,7 +614,11 @@ class FrenchTTSApp(ctk.CTk):
             pass
 
     def _bind_stt_key(self) -> None:
-        """Update the Tkinter window binding and button label for the STT hotkey."""
+        """Update the Tkinter window binding and button label for the STT hotkey.
+
+        Only binds the key when STT is enabled; always unbinds the old key first
+        so toggling STT off immediately stops the key from working.
+        """
         if self._current_stt:
             try:
                 self.unbind(f"<{self._current_stt}>")
@@ -618,10 +627,11 @@ class FrenchTTSApp(ctk.CTk):
         key = self.stt_key_var.get()
         self._current_stt = key
         self._update_mic_btn_label()
-        try:
-            self.bind(f"<{key}>", lambda e: self._on_mic_toggle())
-        except Exception:
-            pass
+        if self.stt_enabled_var.get():
+            try:
+                self.bind(f"<{key}>", lambda e: self._on_mic_toggle())
+            except Exception:
+                pass
 
     def _update_mic_btn_label(self) -> None:
         """Refresh the mic button label to show the current STT keybind."""
@@ -660,11 +670,14 @@ class FrenchTTSApp(ctk.CTk):
         except Exception:
             self._hk_stop = None
 
-        try:
-            self._hk_stt = keyboard.add_hotkey(
-                self.stt_key_var.get().lower(),
-                lambda: self.after(0, self._on_mic_toggle))
-        except Exception:
+        if self.stt_enabled_var.get():
+            try:
+                self._hk_stt = keyboard.add_hotkey(
+                    self.stt_key_var.get().lower(),
+                    lambda: self.after(0, self._on_mic_toggle))
+            except Exception:
+                self._hk_stt = None
+        else:
             self._hk_stt = None
 
     # --- Settings window ----------------------------------------------------
@@ -837,19 +850,19 @@ class FrenchTTSApp(ctk.CTk):
     def _on_stt_toggle(self) -> None:
         """Show or hide the mic button when STT is enabled/disabled in settings.
 
-        Recomputes the window height after the grid reflows so no blank space
-        is left behind when the button is hidden.
-        When disabling, any active recording is cancelled immediately.
-        When enabling, the button label is refreshed (key may have changed
-        while the button was hidden) before restoring its grid position.
+        Also updates the Tkinter key binding and the global keyboard hotkey so
+        the STT shortcut is active only when STT is enabled.
+        Recomputes the window height after the grid reflows.
         """
         if self.stt_enabled_var.get():
-            self._update_mic_btn_label()
             self.mic_btn.grid()
         else:
             if self._listener:
                 self._listener.cancel()
             self.mic_btn.grid_remove()
+        # Re-evaluate hotkey bindings (both respect stt_enabled_var)
+        self._bind_stt_key()
+        self._bind_global_hotkeys()
         self.update_idletasks()
         self.geometry(f"490x{self.winfo_reqheight()}")
 
