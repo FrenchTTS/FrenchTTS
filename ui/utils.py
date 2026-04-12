@@ -125,6 +125,32 @@ def _apply_acrylic(hwnd: int, color_abgr: int = 0xD0202020) -> None:
         pass
 
 
+def force_taskbar_presence(window) -> None:
+    """Force a window to appear in the Windows taskbar.
+
+    Needed for two cases:
+    - ``overrideredirect(True)`` windows (no native titlebar): Windows omits
+      them from the taskbar unless ``WS_EX_APPWINDOW`` is explicitly set.
+    - ``transient()`` toplevels: Tkinter's transient call sets an owner HWND,
+      which causes Windows to suppress the taskbar button by default.
+
+    ``SetWindowPos`` with ``SWP_FRAMECHANGED`` tells the shell to re-evaluate
+    the extended style without moving or resizing the window.
+    """
+    try:
+        hwnd = ctypes.windll.user32.GetParent(window.winfo_id())
+        GWL_EXSTYLE      = -20
+        WS_EX_APPWINDOW  = 0x00040000
+        WS_EX_TOOLWINDOW = 0x00000080
+        style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        style = (style | WS_EX_APPWINDOW) & ~WS_EX_TOOLWINDOW
+        ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+        # SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0037)
+    except Exception:
+        pass
+
+
 def apply_window_transparency(window, opacity: float) -> None:
     """Set window alpha and, when opacity < 1.0, enable acrylic blur.
 

@@ -6,7 +6,7 @@ import customtkinter as ctk
 
 from core.constants import (APP_NAME, VOICES, _BTN_SECONDARY,
                             fmt_rate, fmt_pitch, fmt_volume, BASE_DIR)
-from ui.utils import _set_window_icon, apply_window_transparency, _safe_open
+from ui.utils import _set_window_icon, apply_window_transparency, _safe_open, force_taskbar_presence
 
 _WIN_W = 560   # settings window width
 _MAX_H = 760   # maximum settings window height before the scrollbar kicks in
@@ -32,7 +32,7 @@ class SettingsWindow(ctk.CTkToplevel):
     def __init__(self, app: "FrenchTTSApp"):
         super().__init__(app)
         self._app = app
-        self.title(f"Paramètres — {APP_NAME}")
+        self.title(f"{APP_NAME} - Paramètres")
         self.geometry(f"{_WIN_W}x1")
         self.resizable(False, False)
         self.transient(app)
@@ -49,6 +49,7 @@ class SettingsWindow(ctk.CTkToplevel):
         _set_window_icon(self)
         self.after(50,  self.lift)
         self.after(120, lambda: apply_window_transparency(self, self._app.opacity_var.get()))
+        self.after(250, lambda: force_taskbar_presence(self))
 
     # --- Layout -------------------------------------------------------------
 

@@ -20,7 +20,7 @@ import customtkinter as ctk
 
 from core.constants import APP_NAME, GITHUB_REPO, _BTN_SECONDARY
 from core.version import BUILD_ID
-from ui.utils import apply_window_transparency
+from ui.utils import apply_window_transparency, force_taskbar_presence
 
 
 # ---------------------------------------------------------------------------
@@ -89,12 +89,14 @@ class UpdaterSplash(ctk.CTk):
         # WM_DELETE_WINDOW is kept as a no-op guard even though there is no
         # visible close button, in case the window manager sends the event.
         self.overrideredirect(True)
+        self.title(f"{APP_NAME} - Updater")
         self.resizable(False, False)
         self.protocol("WM_DELETE_WINDOW", lambda: None)
 
         self._build()
         self._recenter()
         self.after(150, lambda: apply_window_transparency(self, 0.93))
+        self.after(200, lambda: force_taskbar_presence(self))
         self.after(300, self._start_check)
 
     # --- Layout -------------------------------------------------------------
