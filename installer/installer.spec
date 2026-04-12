@@ -2,17 +2,23 @@
 #
 # PyInstaller spec for FrenchTTSInstaller.exe.
 #
-# IMPORTANT: FrenchTTS.exe must be built first (dist/FrenchTTS.exe exists)
-# before this spec can be used.  build.bat and the CI workflow enforce this order.
+# IMPORTANT: build order must be respected:
+#   1. dist/FrenchTTS.exe           (main app)
+#   2. dist/FrenchTTSUninstaller.exe (uninstaller)
+#   3. installer/dist/FrenchTTSInstaller.exe  (this spec — bundles the above)
+#
+# Build (from project root):
+#   python -m PyInstaller --clean installer\installer.spec --distpath installer\dist --workpath installer\build
 
 a = Analysis(
     ['installer_main.py'],
     pathex=[],
     binaries=[],
     datas=[
-        ('../dist/FrenchTTS.exe', '.'),   # bundle the main app inside the installer
-        ('../img/icon.ico',       'img'), # window + taskbar icon
-        ('../img/icon.png',       'img'), # in-window icon image
+        ('../dist/FrenchTTS.exe',              '.'),    # main application
+        ('../dist/FrenchTTSUninstaller.exe',   '.'),    # uninstaller (extracted at install time)
+        ('../img/icon.ico',                    'img'),  # PE icon / taskbar
+        ('../img/icon.png',                    'img'),  # (reserved for future in-window display)
     ],
     hiddenimports=[],
     hookspath=[],

@@ -19,11 +19,11 @@ if errorlevel 1 (
 )
 
 echo Cleaning up old builds...
-if exist build           rmdir /s /q build
-if exist dist            rmdir /s /q dist
-if exist installer\build rmdir /s /q installer\build
-if exist installer\dist  rmdir /s /q installer\dist
-if exist FrenchTTS.spec  del /q FrenchTTS.spec
+if exist build              rmdir /s /q build
+if exist dist               rmdir /s /q dist
+if exist installer\build    rmdir /s /q installer\build
+if exist installer\dist     rmdir /s /q installer\dist
+if exist FrenchTTS.spec     del /q FrenchTTS.spec
 
 if not exist versions mkdir versions
 
@@ -37,10 +37,9 @@ echo Build ID: %GIT_SHA%
 
 :: -----------------------------------------------------------------------
 :: Step 1 — Build FrenchTTS.exe (main application)
-:: FrenchTTSInstaller.exe bundles this, so it must be built first.
 :: -----------------------------------------------------------------------
 echo.
-echo [1/2] Building FrenchTTS.exe...
+echo [1/3] Building FrenchTTS.exe...
 python -m PyInstaller ^
     --onefile ^
     --windowed ^
@@ -75,10 +74,29 @@ if %BUILD_RESULT% neq 0 (
 )
 
 :: -----------------------------------------------------------------------
-:: Step 2 — Build FrenchTTSInstaller.exe (bundles dist\FrenchTTS.exe)
+:: Step 2 — Build FrenchTTSUninstaller.exe (tiny, no UI framework)
+:: Must be built before the installer so it can be bundled inside it.
 :: -----------------------------------------------------------------------
 echo.
-echo [2/2] Building FrenchTTSInstaller.exe...
+echo [2/3] Building FrenchTTSUninstaller.exe...
+python -m PyInstaller ^
+    --clean ^
+    installer\uninstaller.spec ^
+    --distpath dist ^
+    --workpath build\uninstaller
+
+if errorlevel 1 (
+    echo.
+    echo ERROR during FrenchTTSUninstaller.exe build. See logs above.
+    pause
+    exit /b 1
+)
+
+:: -----------------------------------------------------------------------
+:: Step 3 — Build FrenchTTSInstaller.exe (bundles FrenchTTS.exe + uninstaller)
+:: -----------------------------------------------------------------------
+echo.
+echo [3/3] Building FrenchTTSInstaller.exe...
 if not exist installer\dist mkdir installer\dist
 
 python -m PyInstaller ^
@@ -96,7 +114,8 @@ if errorlevel 1 (
 
 echo.
 echo Build complete.
-echo   App:       dist\FrenchTTS.exe
-echo   Installer: installer\dist\FrenchTTSInstaller.exe  (build ID: %GIT_SHA%^)
+echo   App:         dist\FrenchTTS.exe
+echo   Uninstaller: dist\FrenchTTSUninstaller.exe
+echo   Installer:   installer\dist\FrenchTTSInstaller.exe  (build ID: %GIT_SHA%^)
 echo Config saved in: %%APPDATA%%\FrenchTTS\config.json
 pause

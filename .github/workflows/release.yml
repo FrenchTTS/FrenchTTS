@@ -133,15 +133,23 @@ jobs:
           --hidden-import keyboard
           main.py
 
-      # Step 2 — build the installer (bundles dist/FrenchTTS.exe inside it)
+      # Step 2 — build the uninstaller (tiny, no UI framework; bundled inside installer)
+      - name: Build FrenchTTSUninstaller.exe
+        run: >
+          python -m PyInstaller
+          --clean
+          installer/uninstaller.spec
+          --distpath dist
+          --workpath build/uninstaller
+
+      # Step 3 — build the installer (bundles FrenchTTS.exe + FrenchTTSUninstaller.exe)
       - name: Build FrenchTTSInstaller.exe
         run: >
           python -m PyInstaller
-          --onefile
-          --windowed
-          --name FrenchTTSInstaller
-          --add-data "dist/FrenchTTS.exe;."
-          installer/installer_main.py
+          --clean
+          installer/installer.spec
+          --distpath installer/dist
+          --workpath installer/build
 
       # Publish ONLY the installer as the release asset.
       # Users always download FrenchTTSInstaller.exe — it contains FrenchTTS.exe
@@ -152,4 +160,4 @@ jobs:
           tag_name: "prod-${{ steps.ver.outputs.sha }}"
           name: "FrenchTTS prod-${{ steps.ver.outputs.sha }}"
           body_path: release_body.md
-          files: dist/FrenchTTSInstaller.exe
+          files: installer/dist/FrenchTTSInstaller.exe

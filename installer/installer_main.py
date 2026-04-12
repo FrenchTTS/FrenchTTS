@@ -1,16 +1,19 @@
 """
 FrenchTTSInstaller — installer and update helper.
 
-FrenchTTS.exe is bundled inside this exe via PyInstaller --add-data.
+FrenchTTS.exe and FrenchTTSUninstaller.exe are bundled inside this exe via
+PyInstaller --add-data.
 
 First-install mode (no args, user double-click):
-  Extracts bundled FrenchTTS.exe → installs to %LOCALAPPDATA%\\FrenchTTS\\
-  → creates a desktop shortcut → launches it.
+  Shows a dark CTk splash matching the FrenchTTS DA.
+  Extracts bundled FrenchTTS.exe + FrenchTTSUninstaller.exe to INSTALL_DIR,
+  creates a Desktop shortcut and a Start Menu folder, then launches the app.
 
 Update mode (called by the running FrenchTTS.exe auto-updater):
   FrenchTTSInstaller.exe --pid PID --target CURRENT_EXE_PATH
-  Waits for PID to exit (Win32 WaitForSingleObject), extracts bundled
-  FrenchTTS.exe from sys._MEIPASS, copies it to CURRENT_EXE_PATH, relaunches.
+  Headless — no UI. Waits for PID to exit (Win32 WaitForSingleObject),
+  extracts bundled FrenchTTS.exe from sys._MEIPASS, copies it to CURRENT_EXE_PATH,
+  refreshes FrenchTTSUninstaller.exe alongside it, then relaunches.
 """
 
 import argparse
@@ -19,17 +22,19 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 
 APP_NAME    = "FrenchTTS"
 INSTALL_DIR = os.path.join(
-    os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
-    APP_NAME,
-)
+    os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), APP_NAME)
+START_MENU_DIR = os.path.join(
+    os.environ.get("APPDATA", os.path.expanduser("~")),
+    "Microsoft", "Windows", "Start Menu", "Programs", APP_NAME)
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Shared helpers
 # ---------------------------------------------------------------------------
 
 def _wait_pid(pid: int, timeout_ms: int = 30_000) -> None:
@@ -52,162 +57,205 @@ def _copy_retry(src: str, dst: str, attempts: int = 10) -> None:
             time.sleep(0.4)
 
 
-def _bundled_exe() -> str:
-    """Absolute path to FrenchTTS.exe inside our PyInstaller _MEIPASS."""
-    return os.path.join(sys._MEIPASS, f"{APP_NAME}.exe")
+def _bundled(name: str) -> str:
+    """Absolute path to a file inside the PyInstaller _MEIPASS directory."""
+    return os.path.join(sys._MEIPASS, name)
 
 
-def _set_dark_titlebar(hwnd: int) -> None:
-    """Apply the immersive dark title bar on Windows 10 build 18985+."""
+def _create_shortcut(target: str, lnk_path: str) -> None:
+    """Create a Windows .lnk shortcut via PowerShell (best-effort)."""
+    ps = (
+        f"$ws = New-Object -ComObject WScript.Shell; "
+        f"$s = $ws.CreateShortcut('{lnk_path}'); "
+        f"$s.TargetPath = '{target}'; "
+        f"$s.IconLocation = '{target},0'; "
+        f"$s.Save()"
+    )
+    subprocess.run(
+        ["powershell", "-Command", ps],
+        capture_output=True,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+
+
+def _force_taskbar(window) -> None:
+    """Apply WS_EX_APPWINDOW so a borderless window appears in the taskbar."""
     try:
-        ctypes.windll.dwmapi.DwmSetWindowAttribute(
-            hwnd, 20, ctypes.byref(ctypes.c_int(1)), 4)
+        hwnd = ctypes.windll.user32.GetParent(window.winfo_id())
+        GWL_EXSTYLE      = -20
+        WS_EX_APPWINDOW  = 0x00040000
+        WS_EX_TOOLWINDOW = 0x00000080
+        style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        style = (style | WS_EX_APPWINDOW) & ~WS_EX_TOOLWINDOW
+        ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+        # SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0037)
     except Exception:
         pass
 
 
 # ---------------------------------------------------------------------------
-# Modes
+# Update mode  (headless, no UI)
 # ---------------------------------------------------------------------------
 
 def _do_update(pid: int, target: str) -> None:
-    """Update mode: wait for old process, swap exe, relaunch."""
+    """Wait for the old process, swap FrenchTTS.exe, refresh the uninstaller."""
     _wait_pid(pid)
-    _copy_retry(_bundled_exe(), target)
+    _copy_retry(_bundled(f"{APP_NAME}.exe"), target)
+
+    # Refresh the uninstaller alongside the app exe (best-effort)
+    uninst_src = _bundled(f"{APP_NAME}Uninstaller.exe")
+    if os.path.isfile(uninst_src):
+        uninst_dst = os.path.join(os.path.dirname(target), f"{APP_NAME}Uninstaller.exe")
+        _copy_retry(uninst_src, uninst_dst)
+
     if os.path.isfile(target):
         subprocess.Popen([target], creationflags=subprocess.DETACHED_PROCESS)
 
 
+# ---------------------------------------------------------------------------
+# Install mode  (CTk splash, matching FrenchTTS DA)
+# ---------------------------------------------------------------------------
+
 def _do_install() -> None:
-    """First-install mode: dark-themed installer matching the FrenchTTS DA."""
-    import tkinter as tk
-    import tkinter.ttk as ttk
-    from tkinter import messagebox
+    """Show a dark splash, run steps, launch the installed app."""
+    import customtkinter as ctk
 
-    # --- Window --------------------------------------------------------------
-    root = tk.Tk()
-    root.title(f"{APP_NAME} — Installation")
-    root.resizable(False, False)
-    root.configure(bg="#1c1c1c")
+    ctk.set_appearance_mode("dark")
+    ctk.set_default_color_theme("blue")
 
-    WIN_W, WIN_H = 380, 210
-    sw = root.winfo_screenwidth()
-    sh = root.winfo_screenheight()
-    root.geometry(f"{WIN_W}x{WIN_H}+{(sw - WIN_W) // 2}+{(sh - WIN_H) // 2}")
+    # ── Window ───────────────────────────────────────────────────────────────
+    splash = ctk.CTk()
+    splash.title(f"{APP_NAME} — Installation")
+    splash.overrideredirect(True)
+    splash.resizable(False, False)
+    splash.protocol("WM_DELETE_WINDOW", lambda: None)
+    splash.configure(padx=40)
 
-    # Dark title bar
-    root.update_idletasks()
-    hwnd = ctypes.windll.user32.GetParent(root.winfo_id()) or root.winfo_id()
-    _set_dark_titlebar(hwnd)
+    # Size: same width as updater splash; auto-height from content
+    splash.geometry("360x1")
+    splash.update_idletasks()
 
-    # Window icon (.ico — shown in taskbar and title bar)
-    ico_path = os.path.join(sys._MEIPASS, "img", "icon.ico")
-    if os.path.isfile(ico_path):
+    splash.after(150, lambda: splash.wm_attributes("-alpha", 0.93))
+    splash.after(200, lambda: _force_taskbar(splash))
+
+    # ── Cancel pending after() callbacks on close (silence CTk internals) ────
+    _orig_destroy = splash.destroy
+
+    def _destroy() -> None:
         try:
-            root.iconbitmap(ico_path)
+            for aid in splash.tk.call("after", "info").split():
+                try:
+                    splash.after_cancel(aid)
+                except Exception:
+                    pass
         except Exception:
             pass
+        _orig_destroy()
 
-    # --- In-window icon image (48×48) ---------------------------------------
-    icon_img = None
-    png_path = os.path.join(sys._MEIPASS, "img", "icon.png")
-    if os.path.isfile(png_path):
-        try:
-            from PIL import Image as _Img, ImageTk as _ITk
-            pil = _Img.open(png_path).resize((48, 48), _Img.LANCZOS)
-            icon_img = _ITk.PhotoImage(pil)
-        except Exception:
-            pass
+    splash.destroy = _destroy
 
-    # --- Progress bar style -------------------------------------------------
-    style = ttk.Style(root)
-    style.theme_use("clam")
-    style.configure(
-        "FT.Horizontal.TProgressbar",
-        troughcolor="#2c2c2c",
-        background="#3a7ebf",
-        darkcolor="#3a7ebf",
-        lightcolor="#3a7ebf",
-        bordercolor="#2c2c2c",
+    # ── Drag (borderless window) ─────────────────────────────────────────────
+    drag = {"x": 0, "y": 0}
+
+    def _drag_start(e):
+        drag["x"] = e.x_root - splash.winfo_x()
+        drag["y"] = e.y_root - splash.winfo_y()
+
+    def _drag_move(e):
+        splash.geometry(f"+{e.x_root - drag['x']}+{e.y_root - drag['y']}")
+
+    # ── Layout ───────────────────────────────────────────────────────────────
+    splash.columnconfigure(0, weight=1)
+
+    title_lbl = ctk.CTkLabel(
+        splash, text=APP_NAME,
+        font=ctk.CTkFont(size=20, weight="bold"),
     )
+    title_lbl.grid(row=0, column=0, pady=(28, 6))
+    title_lbl.bind("<ButtonPress-1>", _drag_start)
+    title_lbl.bind("<B1-Motion>",     _drag_move)
 
-    # --- Layout -------------------------------------------------------------
-    header = tk.Frame(root, bg="#1c1c1c")
-    header.pack(pady=(24, 8))
-
-    if icon_img:
-        lbl_icon = tk.Label(header, image=icon_img, bg="#1c1c1c")
-        lbl_icon.image = icon_img   # prevent GC
-        lbl_icon.pack(side="left", padx=(0, 10))
-
-    tk.Label(
-        header, text=APP_NAME,
-        font=("Segoe UI", 14, "bold"),
-        fg="#ffffff", bg="#1c1c1c",
-    ).pack(side="left")
-
-    status_var = tk.StringVar(value="Cliquez sur Installer pour commencer.")
-    tk.Label(
-        root, textvariable=status_var,
-        font=("Segoe UI", 9),
-        fg="#888888", bg="#1c1c1c",
-    ).pack(pady=(0, 8))
-
-    bar = ttk.Progressbar(
-        root, length=300, mode="indeterminate",
-        style="FT.Horizontal.TProgressbar",
+    status_lbl = ctk.CTkLabel(
+        splash, text="Cliquez sur Installer pour commencer.",
+        text_color=("gray50", "gray55"),
+        font=ctk.CTkFont(size=11),
     )
-    bar.pack(pady=(0, 14))
+    status_lbl.grid(row=1, column=0, pady=(0, 14))
 
-    install_btn = tk.Button(
-        root, text="Installer",
-        font=("Segoe UI", 9, "bold"),
-        bg="#3a7ebf", fg="#ffffff",
-        activebackground="#2e6da4", activeforeground="#ffffff",
-        relief="flat", padx=24, pady=7, cursor="hand2", bd=0,
-    )
-    install_btn.pack()
+    bar = ctk.CTkProgressBar(splash, mode="determinate", width=240)
+    bar.set(0)
+    bar.grid(row=2, column=0, pady=(0, 14))
 
-    # --- Install logic ------------------------------------------------------
-    def _run() -> None:
-        install_btn.configure(state="disabled")
-        bar.start()
-        status_var.set("Installation en cours...")
+    install_btn = ctk.CTkButton(splash, text="Installer", width=140)
+    install_btn.grid(row=3, column=0, pady=(0, 28))
+
+    # Resize to fit content now that all widgets are placed
+    splash.update_idletasks()
+    h = splash.winfo_reqheight()
+    sw = splash.winfo_screenwidth()
+    sh = splash.winfo_screenheight()
+    splash.geometry(f"360x{h}+{(sw - 360) // 2}+{(sh - h) // 2}")
+
+    # ── Installation paths ───────────────────────────────────────────────────
+    target_exe      = os.path.join(INSTALL_DIR, f"{APP_NAME}.exe")
+    target_uninst   = os.path.join(INSTALL_DIR, f"{APP_NAME}Uninstaller.exe")
+    desktop_lnk     = os.path.join(os.path.expanduser("~"), "Desktop", f"{APP_NAME}.lnk")
+    sm_app_lnk      = os.path.join(START_MENU_DIR, f"{APP_NAME}.lnk")
+    sm_uninst_lnk   = os.path.join(START_MENU_DIR, f"Désinstaller {APP_NAME}.lnk")
+
+    uninst_src = _bundled(f"{APP_NAME}Uninstaller.exe")
+
+    STEPS = [
+        ("Copie de FrenchTTS.exe…",
+         lambda: _copy_retry(_bundled(f"{APP_NAME}.exe"), target_exe)),
+
+        ("Copie du désinstalleur…",
+         lambda: _copy_retry(uninst_src, target_uninst) if os.path.isfile(uninst_src) else None),
+
+        ("Raccourci Bureau…",
+         lambda: _create_shortcut(target_exe, desktop_lnk)),
+
+        ("Menu Démarrer…", lambda: (
+            os.makedirs(START_MENU_DIR, exist_ok=True),
+            _create_shortcut(target_exe,    sm_app_lnk),
+            _create_shortcut(target_uninst, sm_uninst_lnk) if os.path.isfile(uninst_src) else None,
+        )),
+    ]
+
+    # ── Worker thread ────────────────────────────────────────────────────────
+    def _worker() -> None:
         try:
             os.makedirs(INSTALL_DIR, exist_ok=True)
-            target = os.path.join(INSTALL_DIR, f"{APP_NAME}.exe")
-            shutil.copy2(_bundled_exe(), target)
+            n = len(STEPS)
+            for i, (msg, fn) in enumerate(STEPS):
+                splash.after(0, lambda m=msg: status_lbl.configure(text=m))
+                fn()
+                frac = (i + 1) / n
+                splash.after(0, lambda p=frac: bar.set(p))
+                time.sleep(0.2)
 
-            # Desktop shortcut via PowerShell (best-effort)
-            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-            lnk = os.path.join(desktop, f"{APP_NAME}.lnk")
-            ps = (
-                f"$ws = New-Object -ComObject WScript.Shell; "
-                f"$s = $ws.CreateShortcut('{lnk}'); "
-                f"$s.TargetPath = '{target}'; $s.Save()"
-            )
-            subprocess.run(
-                ["powershell", "-Command", ps],
-                capture_output=True,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
-
-            status_var.set("Installation terminée !")
-            bar.stop()
-            bar.configure(mode="determinate")
-            bar["value"] = 100
-            root.after(900, lambda: (
-                subprocess.Popen([target], creationflags=subprocess.DETACHED_PROCESS),
-                root.destroy(),
+            splash.after(0, lambda: status_lbl.configure(text="Installation terminée !"))
+            splash.after(0, lambda: bar.set(1.0))
+            splash.after(900, lambda: (
+                subprocess.Popen([target_exe], creationflags=subprocess.DETACHED_PROCESS),
+                splash.destroy(),
             ))
         except Exception as exc:
-            bar.stop()
-            install_btn.configure(state="normal")
-            status_var.set(f"Erreur : {exc}")
-            messagebox.showerror("Erreur d'installation", str(exc), parent=root)
+            splash.after(0, lambda e=str(exc): _on_error(e))
 
-    install_btn.configure(command=lambda: root.after(50, _run))
-    root.mainloop()
+    def _on_error(msg: str) -> None:
+        status_lbl.configure(text=f"Erreur : {msg}")
+        bar.set(0)
+        install_btn.configure(state="normal")
+
+    def _start() -> None:
+        install_btn.configure(state="disabled")
+        status_lbl.configure(text="Installation en cours…")
+        threading.Thread(target=_worker, daemon=True).start()
+
+    install_btn.configure(command=lambda: splash.after(50, _start))
+    splash.mainloop()
 
 
 # ---------------------------------------------------------------------------
