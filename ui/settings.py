@@ -8,7 +8,8 @@ from core.constants import (APP_NAME, VOICES, _BTN_SECONDARY,
                             fmt_rate, fmt_pitch, fmt_volume, BASE_DIR)
 from ui.utils import _set_window_icon, apply_window_transparency, _safe_open
 
-_MAX_H = 620   # maximum settings window height before the scrollbar kicks in
+_WIN_W = 560   # settings window width
+_MAX_H = 760   # maximum settings window height before the scrollbar kicks in
 
 
 class SettingsWindow(ctk.CTkToplevel):
@@ -32,7 +33,7 @@ class SettingsWindow(ctk.CTkToplevel):
         super().__init__(app)
         self._app = app
         self.title(f"Paramètres — {APP_NAME}")
-        self.geometry("480x1")
+        self.geometry(f"{_WIN_W}x1")
         self.resizable(False, False)
         self.transient(app)
         self._capturing_key = False
@@ -43,7 +44,7 @@ class SettingsWindow(ctk.CTkToplevel):
         self._build()
         self.update_idletasks()
         h = min(self.winfo_reqheight(), _MAX_H)
-        self.geometry(f"480x{h}")
+        self.geometry(f"{_WIN_W}x{h}")
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         _set_window_icon(self)
         self.after(50,  self.lift)
@@ -74,7 +75,7 @@ class SettingsWindow(ctk.CTkToplevel):
         frm = ctk.CTkScrollableFrame(
             self, corner_radius=0, border_width=0, fg_color="transparent")
         frm.grid(row=1, column=0, sticky="nsew")
-        frm.columnconfigure(0, minsize=148, weight=0)
+        frm.columnconfigure(0, minsize=165, weight=0)
         frm.columnconfigure(1, weight=1)
         frm.columnconfigure(2, weight=0)
         self._frm = frm
