@@ -298,6 +298,3 @@ class SettingsWindow(ctk.CTkToplevel):
         self._capture_lbl.configure(text=event.keysym)
         self._capture_post()
 
-    def update_devices(self, names: list) -> None:
-        """Refresh the device dropdown values (called from FrenchTTSApp)."""
-        self.device_menu.configure(values=names or ["Aucun périphérique"])

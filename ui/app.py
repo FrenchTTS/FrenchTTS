@@ -113,7 +113,7 @@ class FrenchTTSApp(ctk.CTk):
         self.opacity_var      = ctk.DoubleVar(value=0.93)
         self.replay_key_var   = ctk.StringVar(value="F2")
         self.stop_key_var     = ctk.StringVar(value="F3")
-        self.stt_enabled_var      = ctk.BooleanVar(value=True)
+        self.stt_enabled_var      = ctk.BooleanVar(value=False)
         self.stt_input_var        = ctk.StringVar()
         self.stt_key_var          = ctk.StringVar(value="F1")
         self.stt_auto_restart_var = ctk.BooleanVar(value=False)
@@ -508,8 +508,7 @@ class FrenchTTSApp(ctk.CTk):
 
     def _load_changelog(self) -> str:
         """Read versions/{BUILD_ID}.md and strip YAML frontmatter.  Returns "" if absent."""
-        import sys as _sys
-        base = _sys._MEIPASS if getattr(_sys, "frozen", False) \
+        base = sys._MEIPASS if getattr(sys, "frozen", False) \
                else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         path = os.path.join(base, "versions", f"{BUILD_ID}.md")
         try:
@@ -884,8 +883,6 @@ class FrenchTTSApp(ctk.CTk):
                 except Exception:
                     pass
         self._save_settings()
-        self._history.clear()
-        self._save_history()
         try:
             os.remove(LAST_MP3)
         except OSError:

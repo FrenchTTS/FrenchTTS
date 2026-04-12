@@ -27,19 +27,15 @@ from ui.utils import apply_window_transparency, _set_window_icon
 # Self-replacement
 # ---------------------------------------------------------------------------
 
-def _apply_update(close_fn, installer_exe: str) -> None:
-    """Launch FrenchTTSInstaller.exe to replace this exe, then close.
+def _apply_update(installer_exe: str) -> bool:
+    """Launch FrenchTTSInstaller.exe to replace this exe.
 
-    The installer (downloaded to a temp directory) bundles the new FrenchTTS.exe
-    inside itself.  It receives our PID, waits for us to exit — releasing the OS
-    file lock on FrenchTTS.exe — then copies its bundled exe over sys.executable
-    and relaunches it.
+    The installer bundles the new FrenchTTS.exe. It receives our PID, waits for
+    us to exit — releasing the OS file lock — then copies its bundled exe over
+    sys.executable and relaunches it.
 
-    Replaces the old .bat approach which crashed whenever sys.executable contained
-    non-ASCII characters (the bat was written with encoding="ascii").
-
-    If launching the installer fails, ``close_fn`` is intentionally NOT called so
-    the splash remains open and the user can choose "Continuer sans mise à jour".
+    Returns True on success (caller should close the splash), False on failure
+    (caller should surface the error so the user can skip or retry).
     """
     try:
         subprocess.Popen(
@@ -49,13 +45,13 @@ def _apply_update(close_fn, installer_exe: str) -> None:
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW,
             close_fds=True,
         )
+        return True
     except Exception:
         try:
             os.remove(installer_exe)
         except OSError:
             pass
-        return
-    close_fn()
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -358,8 +354,15 @@ class UpdaterSplash(ctk.CTk):
         # Success — clear the pending marker, then apply or simulate
         self._pending_download = None
         if getattr(sys, "frozen", False):
-            self._launch_app = False
-            self.after(0, lambda: _apply_update(self.destroy, new_file))
+            def _on_apply():
+                if _apply_update(new_file):
+                    self._launch_app = False
+                    self.destroy()
+                else:
+                    self._show_error(
+                        "Impossible de lancer le programme d'installation.\n"
+                        "Réessayez ou continuez sans mise à jour.")
+            self.after(0, _on_apply)
         else:
             # Dev mode: show result without touching any executable
             self.after(0, lambda: self._status_lbl.configure(
