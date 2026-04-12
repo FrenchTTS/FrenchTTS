@@ -12,7 +12,7 @@ from core.constants import (APP_NAME, VOICES, _BTN_SECONDARY,
 from ui.utils import _set_window_icon, apply_window_transparency, _safe_open, force_taskbar_presence
 
 _WIN_W = 560   # settings window width
-_MAX_H = 960   # maximum settings window height before the scrollbar kicks in
+_MAX_H = 720   # maximum settings window height before the scrollbar kicks in
 
 
 class SettingsWindow(ctk.CTkToplevel):
