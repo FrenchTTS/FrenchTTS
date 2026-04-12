@@ -35,6 +35,7 @@ from core.sounds import (
 from ui.utils import (
     _get_icon_path, make_tray_image,
     _set_window_icon, apply_window_transparency,
+    send_notification,
 )
 from ui.settings import SettingsWindow
 from voice.listener import STTListener, _get_model
@@ -451,9 +452,9 @@ class FrenchTTSApp(ctk.CTk):
         if match:
             self.device_var.set(match)
 
-        self.rate_var.set(cfg["rate"])
-        self.volume_var.set(cfg["volume"])
-        self.pitch_var.set(cfg["pitch"])
+        self.rate_var.set(cfg.get("rate",   0))
+        self.volume_var.set(cfg.get("volume", 100))
+        self.pitch_var.set(cfg.get("pitch",  0))
         self.opacity_var.set(float(cfg.get("opacity", 0.93)))
         self.replay_key_var.set(str(cfg.get("replay_key", "F2")))
         self.stop_key_var.set(str(cfg.get("stop_key", "F3")))
@@ -710,7 +711,6 @@ class FrenchTTSApp(ctk.CTk):
                 return
             except Exception:
                 pass
-        from ui.utils import send_notification
         send_notification(title, message)
 
     def _tray_notify_hidden(self) -> None:

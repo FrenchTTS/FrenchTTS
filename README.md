@@ -45,12 +45,15 @@ The app wraps it in a clean dark-mode desktop UI with audio device routing, so y
   - Energy-based VAD: starts recording automatically when you speak, stops on silence
   - Configurable keybind (default `F1`) shown on the button
   - Auto-restart mode: re-activates the mic after each TTS playback
-- **System tray** — minimizes to tray, restores on double-click
+  - Optional tray notification showing the transcribed text
+- **System tray** — closing the window hides to tray (balloon notification confirms); restores on double-click; quit via tray menu
 - **Acrylic blur** — Windows 10/11 native background blur with adjustable opacity
-- **Persistent config** — all settings and history saved in `%APPDATA%\FrenchTTS`
-- **Auto-updater** — checks GitHub Releases at launch, downloads and self-replaces; versioned by commit SHA (`prod-XXXXXXX`)
+- **Persistent config** — all settings and history saved in `%APPDATA%\FrenchTTS`; atomic writes prevent corruption on crash
+- **Auto-updater** — checks GitHub Releases at launch, downloads `FrenchTTSInstaller.exe`, self-replaces silently; versioned by commit SHA (`prod-XXXXXXX`)
+- **Installer** — dark-themed CTk installer with progress steps; creates Desktop shortcut, Start Menu folder, and `FrenchTTSUninstaller.exe`
+- **Uninstaller** — removes app, config, STT models, shortcuts, and Start Menu entries
 - **What's New dialog** — shown once after each update with the release changelog
-- **Buildable as `.exe`** — single-file PyInstaller bundle via `build.bat`
+- **Buildable as `.exe`** — 3-step PyInstaller build via `build.bat`
 
 ---
 
@@ -81,33 +84,43 @@ All voices are neural quality, streamed in real time from Microsoft Edge TTS ser
 
 ## Quick start
 
-##### Automatically
+##### Dev mode (no updater splash)
 
 ```bash
-# Clone and launch — dependencies install automatically
 git clone https://github.com/FrenchTTS/FrenchTTS.git
-pushd FrenchTTS
-launch.bat
-```
-
-##### Manually
-
-```bash
+cd FrenchTTS
 pip install -r requirements.txt
 python main.py
 ```
 
+Or use the helper scripts at the project root:
+
+| Script                  | What it does                                      |
+| ----------------------- | ------------------------------------------------- |
+| `setup.bat`             | Install all pip dependencies                      |
+| `launch - dev.bat`      | Run `python main.py` directly, no updater splash  |
+| `launch - update.bat`   | Run with `--update` flag to simulate an update    |
+| `launch - installer.bat`| Test the installer or uninstaller interactively   |
+
 ---
 
-## Build as .exe
+## Build as `.exe`
 
 ```bash
 build.bat
 ```
 
-Produces `dist/FrenchTTS.exe` as a self-contained single-file executable. The current git SHA is automatically injected as the build ID (`prod-XXXXXXX`). Requires `img/icon.ico` to be present.
+Three-step build — each artifact is a prerequisite for the next:
 
-To publish a release, trigger the **Build & Release** workflow manually from the GitHub Actions UI. It will build, tag the release `prod-<sha>`, and attach the exe. Write `versions/<sha>.md` beforehand if you want a What's New changelog.
+| Step | Output | Notes |
+| ---- | ------ | ----- |
+| 1 | `dist\FrenchTTS.exe` | Main app; git SHA injected as build ID |
+| 2 | `dist\FrenchTTSUninstaller.exe` | Tiny stdlib-only uninstaller |
+| 3 | `installer\dist\FrenchTTSInstaller.exe` | Bundles both exes; this is the release asset |
+
+To publish a release, trigger the **Build & Release** workflow manually from the GitHub Actions UI. It builds all three artifacts, tags the release `prod-<sha>`, and attaches `FrenchTTSInstaller.exe` as the only release asset.
+
+Write `versions/<sha>.md` beforehand if you want a custom What's New changelog (auto-generated otherwise from conventional commits).
 
 ---
 
@@ -121,7 +134,8 @@ To publish a release, trigger the **Build & Release** workflow manually from the
 | Replay last audio       | **Redire (F2)** or configured hotkey (default `F2`)          |
 | Navigate history        | `↑` / `↓` in the text box                                   |
 | Open settings           | **⚙ Paramètres**                                            |
-| Minimize to tray        | Minimize the window                                          |
+| Hide to tray            | Click the window's close button (×)                          |
+| Quit                    | Right-click the tray icon → **Quitter**                      |
 | Start / stop STT        | **🎙 STT (F1)** button or configured hotkey (default `F1`)  |
 
 > **Global hotkeys** (Replay, Stop, STT) fire even when the app is minimized or not focused.
@@ -140,12 +154,13 @@ STT uses [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (Whisper `s
 
 **Settings:**
 
-| Option             | Description                                                    |
-| ------------------ | -------------------------------------------------------------- |
-| Activer            | Show/hide the STT button                                       |
-| Touche STT         | Keybind to toggle listening (default `F1`)                     |
-| Redémarrage auto   | Automatically re-activates the mic after each TTS playback     |
-| Microphone         | Input device for VAD/transcription                             |
+| Option             | Description                                                                 |
+| ------------------ | --------------------------------------------------------------------------- |
+| Activer            | Show/hide the STT button                                                    |
+| Touche STT         | Keybind to toggle listening (default `F1`)                                  |
+| Redémarrage auto   | Automatically re-activates the mic after each TTS playback                  |
+| Notif. texte       | Show a tray balloon with the transcribed text (title: "STT — Retranscription") |
+| Microphone         | Input device for VAD/transcription                                          |
 
 ---
 
@@ -161,6 +176,20 @@ To also hear the output in your own headphones, enable **Casque** in settings an
 
 ---
 
+## Installation
+
+Download `FrenchTTSInstaller.exe` from the [latest release](https://github.com/FrenchTTS/FrenchTTS/releases/latest) and run it.
+
+The installer:
+- Extracts `FrenchTTS.exe` to `%LOCALAPPDATA%\FrenchTTS\`
+- Creates a Desktop shortcut
+- Creates a **Start Menu** folder (`FrenchTTS`) with shortcuts for the app and the uninstaller
+- Extracts `FrenchTTSUninstaller.exe` alongside the app
+
+To uninstall, run **Désinstaller FrenchTTS** from the Start Menu (or `FrenchTTSUninstaller.exe` directly). It removes the app, all configuration, STT models, and shortcuts.
+
+---
+
 ## Data & file structure
 
 ```
@@ -170,6 +199,10 @@ To also hear the output in your own headphones, enable **Casque** in settings an
 └── history\
     ├── last.mp3           # most recently generated audio
     └── lasts.log          # spoken text history (JSON array, max 100 entries)
+
+%LOCALAPPDATA%\FrenchTTS\
+├── FrenchTTS.exe          # installed application
+└── FrenchTTSUninstaller.exe
 ```
 
 ```
@@ -179,25 +212,32 @@ FrenchTTS/
 │   ├── constants.py       # paths, voices, settings defaults, formatters
 │   ├── sounds.py          # STT audio feedback tones
 │   └── version.py         # BUILD_ID — "dev" in source, SHA in release exe
+├── installer/
+│   ├── installer_main.py  # CTk installer + silent updater helper
+│   ├── installer.spec     # PyInstaller spec (bundles app + uninstaller)
+│   ├── uninstaller_main.py# Win32 stdlib uninstaller
+│   └── uninstaller.spec   # PyInstaller spec (stdlib-only, small)
 ├── ui/
 │   ├── app.py             # FrenchTTSApp — main window + TTS pipeline
 │   ├── settings.py        # SettingsWindow
 │   ├── updater.py         # UpdaterSplash, self-replacement logic
-│   ├── utils.py           # window icons, acrylic blur, tray image
+│   ├── utils.py           # window icons, acrylic blur, tray notifications
 │   └── whats_new.py       # What's New dialog shown after updates
 ├── voice/
 │   └── listener.py        # mic capture → VAD → faster-whisper STT pipeline
 ├── versions/
 │   └── <sha>.md           # changelog shown in What's New after each update
-├── audio/                 # STT feedback WAV tones (auto-generated if absent)
 ├── img/
 │   ├── icon.ico
 │   ├── icon.png
 │   └── logo.png
 ├── main.py
 ├── requirements.txt
-├── launch.bat
-└── build.bat
+├── build.bat
+├── setup.bat
+├── launch - dev.bat
+├── launch - update.bat
+└── launch - installer.bat
 ```
 
 ---
@@ -213,8 +253,8 @@ FrenchTTS/
 | `miniaudio`       | In-memory MP3 decode (no ffmpeg needed)           |
 | `numpy`           | PCM buffer handling                               |
 | `keyboard`        | System-wide hotkeys (works when app not focused)  |
-| `pystray`         | System tray icon                                  |
-| `Pillow`          | Tray image fallback                               |
+| `pystray`         | System tray icon and balloon notifications        |
+| `Pillow`          | Tray image and CTk internal rendering             |
 
 ---
 

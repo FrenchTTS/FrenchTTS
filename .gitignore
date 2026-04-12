@@ -3,6 +3,5 @@
 img/icon.psd
 build/
 dist/
-FrenchTTS.spec
 __pycache__/
 *.pyc

@@ -220,8 +220,6 @@ def _do_install() -> None:
     def _drag_move(e):
         splash.geometry(f"+{e.x_root - drag['x']}+{e.y_root - drag['y']}")
 
-    # Bind drag to the CTk internal canvas (window background) + every widget
-    # that doesn't need its own click handling.
     def _bind_drag(*widgets):
         for w in widgets:
             try:
@@ -253,16 +251,18 @@ def _do_install() -> None:
     action_btn = ctk.CTkButton(splash, text=btn_label, width=140)
     action_btn.grid(row=3, column=0, pady=(0, 28))
 
-    # Resize window to fit actual content height, then center on screen
+    # Resize window to fit actual content height, then center on screen.
+    # update_idletasks() fully initialises CTk's internal canvas, so drag
+    # bindings can be attached to it immediately without deferring via after().
     splash.update_idletasks()
     h = splash.winfo_reqheight()
     sw = splash.winfo_screenwidth()
     sh = splash.winfo_screenheight()
     splash.geometry(f"360x{h}+{(sw - 360) // 2}+{(sh - h) // 2}")
 
-    # Bind drag AFTER widgets are built (so CTk canvas exists)
-    splash.after(10, lambda: _bind_drag(splash, splash._canvas if hasattr(splash, '_canvas') else splash,
-                                        title_lbl, status_lbl, bar))
+    # Bind drag to the CTk background canvas + every non-interactive widget.
+    _bg = getattr(splash, "_canvas", splash)
+    _bind_drag(_bg, title_lbl, status_lbl, bar)
 
     # ── Installation steps ───────────────────────────────────────────────────
     STEPS = [

@@ -99,6 +99,9 @@ DEFAULT_SETTINGS: dict = {
     "monitor_device":   "",    # empty → auto-select first non-VB-Cable output
     "last_seen_version": "",   # BUILD_ID of the last version whose changelog was shown
     "version":           "",   # BUILD_ID of the last running session (written by _save_settings)
+    "device_idx":        None, # sounddevice index of the TTS output device
+    "stt_input_idx":     None, # sounddevice index of the STT microphone
+    "monitor_idx":       None, # sounddevice index of the monitor/headphone device
 }
 
 # Ghost-style button appearance reused for secondary actions in both windows.
