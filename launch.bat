@@ -1,28 +1,22 @@
 @echo off
-title FrenchTTS - Launch Development Version
+title FrenchTTS - Dev
 cd /d "%~dp0"
 
 python --version >nul 2>&1
 if errorlevel 1 (
     echo.
-    echo  ERROR: Python cannot be found.
-    echo  Install Python 3.10+ from https://python.org
-    echo  Check "Add Python to PATH" during installation.
+    echo  [ERREUR] Python introuvable. Lancez setup.bat d'abord.
     echo.
     pause
     exit /b 1
 )
 
-echo  Installation of dependencies...
-python -m pip install -r requirements.txt -q --disable-pip-version-check
+echo  Lancement de l'application (mode dev)...
+echo  Le splash de mise a jour s'affiche puis l'app principale s'ouvre.
+echo.
+python main.py
 if errorlevel 1 (
     echo.
-    echo  ERROR during dependency installation.
-    echo  Relaunch as administrator if the issue persists.
-    echo.
+    echo  [ERREUR] L'application s'est arretee avec une erreur.
     pause
-    exit /b 1
 )
-
-echo  Launching application...
-python main.py

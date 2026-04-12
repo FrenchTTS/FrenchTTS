@@ -1,28 +1,23 @@
 @echo off
-title FrenchTTS - Launch Updater Development Version
+title FrenchTTS - Dev (simulation mise a jour)
 cd /d "%~dp0"
 
 python --version >nul 2>&1
 if errorlevel 1 (
     echo.
-    echo  ERROR: Python cannot be found.
-    echo  Install Python 3.10+ from https://python.org
-    echo  Check "Add Python to PATH" during installation.
+    echo  [ERREUR] Python introuvable. Lancez setup.bat d'abord.
     echo.
     pause
     exit /b 1
 )
 
-echo  Installation of dependencies...
-python -m pip install -r requirements.txt -q --disable-pip-version-check
+echo  Lancement avec simulation de mise a jour...
+echo  Le splash simule un telechargement sans toucher aucun .exe.
+echo  (flag --update bypasse l'API GitHub et anime la barre de progression)
+echo.
+python main.py --update
 if errorlevel 1 (
     echo.
-    echo  ERROR during dependency installation.
-    echo  Relaunch as administrator if the issue persists.
-    echo.
+    echo  [ERREUR] L'application s'est arretee avec une erreur.
     pause
-    exit /b 1
 )
-
-echo  Launching updater...
-python main.py --update
