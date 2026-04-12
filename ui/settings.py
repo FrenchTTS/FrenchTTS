@@ -206,14 +206,29 @@ class SettingsWindow(ctk.CTkToplevel):
             onvalue=True, offvalue=False, width=46,
         ).grid(row=0, column=0, sticky="w")
 
-        ctk.CTkLabel(frm, text="Microphone :").grid(row=22, column=0, **LBL)
+        ctk.CTkLabel(frm, text="Notif. texte :").grid(row=22, column=0, **LBL)
+        stt_notif_frame = ctk.CTkFrame(frm, fg_color="transparent")
+        stt_notif_frame.grid(row=22, column=1, columnspan=2, sticky="w", **CTL)
+        ctk.CTkSwitch(
+            stt_notif_frame, text="",
+            variable=self._app.stt_notify_var,
+            onvalue=True, offvalue=False, width=46,
+        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            stt_notif_frame,
+            text="Affiche le texte reconnu en notification (tray)",
+            font=ctk.CTkFont(size=10),
+            text_color=("gray50", "gray50"),
+        ).grid(row=0, column=1, padx=(8, 0), sticky="w")
+
+        ctk.CTkLabel(frm, text="Microphone :").grid(row=23, column=0, **LBL)
         self.stt_input_menu = ctk.CTkOptionMenu(
             frm, variable=self._app.stt_input_var, values=[])
-        self.stt_input_menu.grid(row=22, column=1, sticky="ew", padx=(0, 4), pady=5)
+        self.stt_input_menu.grid(row=23, column=1, sticky="ew", padx=(0, 4), pady=5)
         ctk.CTkButton(frm, text="↺", width=32,
                       command=lambda: self._app._populate_input_devices(
                           widget=self.stt_input_menu)
-                      ).grid(row=22, column=2, padx=(0, 14), pady=5)
+                      ).grid(row=23, column=2, padx=(0, 14), pady=5)
         self._app._populate_input_devices(widget=self.stt_input_menu)
 
         # ── Fixed footer ────────────────────────────────────────────────────

@@ -117,6 +117,7 @@ class FrenchTTSApp(ctk.CTk):
         self.stt_input_var        = ctk.StringVar()
         self.stt_key_var          = ctk.StringVar(value="F1")
         self.stt_auto_restart_var = ctk.BooleanVar(value=False)
+        self.stt_notify_var       = ctk.BooleanVar(value=False)
         self._input_device_map:   dict[str, int] = {}
         self.monitor_enabled_var  = ctk.BooleanVar(value=False)
         self.monitor_device_var   = ctk.StringVar()
@@ -430,6 +431,7 @@ class FrenchTTSApp(ctk.CTk):
 
         self.stt_key_var.set(str(cfg.get("stt_key", "F1")))
         self.stt_auto_restart_var.set(bool(cfg.get("stt_auto_restart", False)))
+        self.stt_notify_var.set(bool(cfg.get("stt_notify", False)))
 
         self.monitor_enabled_var.set(bool(cfg.get("monitor_enabled", False)))
 
@@ -472,6 +474,7 @@ class FrenchTTSApp(ctk.CTk):
             "monitor_device":    strip(self.monitor_device_var.get()),
             "stt_key":           self.stt_key_var.get(),
             "stt_auto_restart":  self.stt_auto_restart_var.get(),
+            "stt_notify":        self.stt_notify_var.get(),
             "last_seen_version": self._last_seen_version,
         }, indent=2, ensure_ascii=False)
         try:
@@ -861,6 +864,8 @@ class FrenchTTSApp(ctk.CTk):
         """
         play_sound(SND_RECOGNIZED)
         self._set_textbox(text)
+        if self._in_tray and self.stt_notify_var.get():
+            self._tray_notify(text)
         self._stt_triggered_tts = True
         self._on_speak()
 

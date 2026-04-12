@@ -94,6 +94,7 @@ DEFAULT_SETTINGS: dict = {
     "stt_input_device": "",    # empty → system default microphone
     "stt_key":          "F1",  # keybind to toggle STT (Tkinter keysym)
     "stt_auto_restart": False, # re-trigger listening after each TTS playback
+    "stt_notify":       False, # tray balloon with transcribed text (tray-only, disabled by default)
     "monitor_enabled":  False, # play TTS audio on a second output device
     "monitor_device":   "",    # empty → auto-select first non-VB-Cable output
     "last_seen_version": "",   # BUILD_ID of the last version whose changelog was shown
