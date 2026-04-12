@@ -102,7 +102,16 @@ DEFAULT_SETTINGS: dict = {
     "device_idx":        None, # sounddevice index of the TTS output device
     "stt_input_idx":     None, # sounddevice index of the STT microphone
     "monitor_idx":       None, # sounddevice index of the monitor/headphone device
-    "cpu_cores":         0,    # number of logical CPUs to use; 0 = all (no throttle)
+    "cpu_cores":         0,    # 0 = sentinel "use 75% default"; actual values saved directly
+    "process_priority":  "normal",  # "normal" | "below_normal" | "idle"
+    "max_memory_mb":     1024,      # soft working-set cap in MB; ≥ 4096 = unlimited
+}
+
+# Display labels for Windows process priority classes (used by SettingsWindow).
+PROCESS_PRIORITY_LABELS: dict[str, str] = {
+    "normal":       "Normale",
+    "below_normal": "En dessous de la normale",
+    "idle":         "Basse (arrière-plan)",
 }
 
 # Ghost-style button appearance reused for secondary actions in both windows.

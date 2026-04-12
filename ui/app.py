@@ -26,7 +26,7 @@ from core.constants import (
     STATUS_RECORDING, STATUS_TRANSCRIBING,
     MAX_HISTORY, DEFAULT_SETTINGS, _BTN_SECONDARY,
     LAST_MP3, CONFIG_FILE, HISTORY_LOG,
-    fmt_rate, fmt_pitch,
+    fmt_rate, fmt_pitch, PROCESS_PRIORITY_LABELS,
 )
 from core.audio import _decode_mp3, trim_silence, save_mp3
 from core.sounds import (
@@ -37,6 +37,7 @@ from ui.utils import (
     _get_icon_path, make_tray_image,
     _set_window_icon, apply_window_transparency,
     send_notification, set_process_affinity,
+    set_process_priority, set_process_memory_limit,
 )
 from ui.settings import SettingsWindow
 from voice.listener import STTListener, _get_model
@@ -128,7 +129,11 @@ class FrenchTTSApp(ctk.CTk):
         self._input_device_map:   dict[str, int] = {}
         self.monitor_enabled_var  = ctk.BooleanVar(value=False)
         self.monitor_device_var   = ctk.StringVar()
-        self.cpu_cores_var        = ctk.IntVar(value=os.cpu_count() or 1)
+        _ncpus = os.cpu_count() or 1
+        self.cpu_cores_var        = ctk.IntVar(value=max(2, _ncpus * 3 // 4))
+        self.process_priority_var = ctk.StringVar(
+            value=PROCESS_PRIORITY_LABELS["normal"])
+        self.max_memory_var       = ctk.IntVar(value=1024)
         self._last_seen_version: str = ""   # loaded by _load_settings
 
         # --- Boot sequence --------------------------------------------------
@@ -497,11 +502,24 @@ class FrenchTTSApp(ctk.CTk):
 
         self._last_seen_version = str(cfg.get("last_seen_version", ""))
 
-        # CPU throttle
+        # CPU throttle — 0 is the "never-configured" sentinel: use 75% default
         ncpus     = os.cpu_count() or 1
         raw_cores = int(cfg.get("cpu_cores", 0))
-        self.cpu_cores_var.set(raw_cores if 0 < raw_cores <= ncpus else ncpus)
+        if raw_cores <= 0:
+            self.cpu_cores_var.set(max(2, ncpus * 3 // 4))
+        else:
+            self.cpu_cores_var.set(min(raw_cores, ncpus))
         self._apply_cpu_affinity()
+
+        # Process priority
+        priority_key = str(cfg.get("process_priority", "normal"))
+        self.process_priority_var.set(
+            PROCESS_PRIORITY_LABELS.get(priority_key, PROCESS_PRIORITY_LABELS["normal"]))
+        self._apply_process_priority()
+
+        # Working-set (RAM) cap
+        self.max_memory_var.set(int(cfg.get("max_memory_mb", 1024)))
+        self._apply_memory_limit()
 
     def _save_settings(self) -> None:
         """Persist current Tkinter var values to config.json.
@@ -539,8 +557,11 @@ class FrenchTTSApp(ctk.CTk):
             "stt_notify":        self.stt_notify_var.get(),
             "last_seen_version": self._last_seen_version,
             "version":           BUILD_ID,
-            "cpu_cores":         (0 if self.cpu_cores_var.get() >= (os.cpu_count() or 1)
-                                  else self.cpu_cores_var.get()),
+            "cpu_cores":         self.cpu_cores_var.get(),
+            "process_priority":  next(
+                (k for k, v in PROCESS_PRIORITY_LABELS.items()
+                 if v == self.process_priority_var.get()), "normal"),
+            "max_memory_mb":     self.max_memory_var.get(),
         }, indent=2, ensure_ascii=False)
         try:
             fd, tmp = tempfile.mkstemp(
@@ -567,6 +588,16 @@ class FrenchTTSApp(ctk.CTk):
         platform guards.
         """
         set_process_affinity(self.cpu_cores_var.get())
+
+    def _apply_process_priority(self) -> None:
+        """Apply the process_priority_var setting via SetPriorityClass."""
+        label = self.process_priority_var.get()
+        key   = next((k for k, v in PROCESS_PRIORITY_LABELS.items() if v == label), "normal")
+        set_process_priority(key)
+
+    def _apply_memory_limit(self) -> None:
+        """Apply the max_memory_var setting via SetProcessWorkingSetSizeEx."""
+        set_process_memory_limit(self.max_memory_var.get())
 
     # --- What's New ---------------------------------------------------------
 

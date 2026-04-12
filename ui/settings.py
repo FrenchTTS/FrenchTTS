@@ -7,7 +7,8 @@ import os
 import customtkinter as ctk
 
 from core.constants import (APP_NAME, VOICES, _BTN_SECONDARY,
-                            fmt_rate, fmt_pitch, fmt_volume, BASE_DIR)
+                            fmt_rate, fmt_pitch, fmt_volume, BASE_DIR,
+                            PROCESS_PRIORITY_LABELS)
 from ui.utils import _set_window_icon, apply_window_transparency, _safe_open, force_taskbar_presence
 
 _WIN_W = 560   # settings window width
@@ -252,10 +253,23 @@ class SettingsWindow(ctk.CTkToplevel):
         self._separator(row=24)
 
         # ── Section: Performances ─────────────────────────────────────────────
-        self._section_label(row=25, text="Performances")
+        # Custom two-label header: bold title + small wink hint side by side
+        hdr_frame = ctk.CTkFrame(frm, fg_color="transparent")
+        hdr_frame.grid(row=25, column=0, columnspan=3, padx=16, pady=(8, 0), sticky="w")
+        ctk.CTkLabel(
+            hdr_frame, text="Performances",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=("gray45", "gray55"),
+        ).grid(row=0, column=0)
+        ctk.CTkLabel(
+            hdr_frame, text="  (Ordinateur Patate 😉)",
+            font=ctk.CTkFont(size=9),
+            text_color=("gray60", "gray50"),
+        ).grid(row=0, column=1, pady=(2, 0))
 
+        # ── CPU core throttle ─────────────────────────────────────────────────
         ncpus = os.cpu_count() or 1
-        ctk.CTkLabel(frm, text="Ordinateur Patate :").grid(row=26, column=0, **LBL)
+        ctk.CTkLabel(frm, text="Cœurs CPU :").grid(row=26, column=0, **LBL)
         cpu_frame = ctk.CTkFrame(frm, fg_color="transparent")
         cpu_frame.grid(row=26, column=1, columnspan=2, sticky="ew", **CTL)
         cpu_frame.columnconfigure(0, weight=1)
@@ -278,6 +292,54 @@ class SettingsWindow(ctk.CTkToplevel):
             text_color=("gray50", "gray50"),
             anchor="w",
         ).grid(row=27, column=0, columnspan=3, padx=16, pady=(0, 6), sticky="w")
+
+        # ── Process priority ──────────────────────────────────────────────────
+        priority_labels = list(PROCESS_PRIORITY_LABELS.values())
+        ctk.CTkLabel(frm, text="Priorité CPU :").grid(row=28, column=0, **LBL)
+        ctk.CTkOptionMenu(
+            frm,
+            variable=self._app.process_priority_var,
+            values=priority_labels,
+            command=self._on_priority_change,
+        ).grid(row=28, column=1, columnspan=2, sticky="ew", **CTL)
+        ctk.CTkLabel(
+            frm,
+            text=("⚠  Réduire la priorité peut baisser la vitesse et la qualité "
+                  "de la synthèse — évitez Basse sauf usage très léger"),
+            font=ctk.CTkFont(size=10),
+            text_color=("#b35900", "#cc7722"),
+            anchor="w",
+            wraplength=480,
+            justify="left",
+        ).grid(row=29, column=0, columnspan=3, padx=16, pady=(0, 6), sticky="w")
+
+        # ── RAM working-set cap ───────────────────────────────────────────────
+        # Slider: 256 → 4096 MB in steps of 256 (16 positions, 15 steps).
+        # 4096 is displayed as "Illimité" and removes any working-set limit.
+        ctk.CTkLabel(frm, text="RAM max :").grid(row=30, column=0, **LBL)
+        ram_frame = ctk.CTkFrame(frm, fg_color="transparent")
+        ram_frame.grid(row=30, column=1, columnspan=2, sticky="ew", **CTL)
+        ram_frame.columnconfigure(0, weight=1)
+        self._ram_lbl = ctk.CTkLabel(
+            ram_frame,
+            text=self._fmt_memory(self._app.max_memory_var.get()),
+            width=80, anchor="w")
+        ctk.CTkSlider(
+            ram_frame,
+            from_=256, to=4096, number_of_steps=15,
+            variable=self._app.max_memory_var,
+            command=lambda v: self._on_memory_change(
+                max(256, min(4096, round(int(v) / 256) * 256))),
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self._ram_lbl.grid(row=0, column=1)
+        ctk.CTkLabel(
+            frm,
+            text=("⚠  Trop bas peut ralentir ou déstabiliser l'app  •  "
+                  "4096 Mo = Illimité"),
+            font=ctk.CTkFont(size=10),
+            text_color=("#b35900", "#cc7722"),
+            anchor="w",
+        ).grid(row=31, column=0, columnspan=3, padx=16, pady=(0, 6), sticky="w")
 
         # ── Fixed footer ────────────────────────────────────────────────────
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -345,6 +407,23 @@ class SettingsWindow(ctk.CTkToplevel):
         self._app.cpu_cores_var.set(n)
         self._cpu_lbl.configure(text=self._fmt_cores(n, total))
         self._app._apply_cpu_affinity()
+
+    def _on_priority_change(self, label: str) -> None:
+        self._app.process_priority_var.set(label)
+        self._app._apply_process_priority()
+
+    @staticmethod
+    def _fmt_memory(mb: int) -> str:
+        if mb >= 4096:
+            return "Illimité"
+        if mb >= 1024:
+            return f"{mb / 1024:.1f} Go"
+        return f"{mb} Mo"
+
+    def _on_memory_change(self, mb: int) -> None:
+        self._app.max_memory_var.set(mb)
+        self._ram_lbl.configure(text=self._fmt_memory(mb))
+        self._app._apply_memory_limit()
 
     def _on_opacity_change(self, value: float) -> None:
         val = round(float(value), 2)

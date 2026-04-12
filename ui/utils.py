@@ -182,6 +182,64 @@ def force_taskbar_presence(window) -> None:
         pass
 
 
+_PRIORITY_CLASS: dict[str, int] = {
+    "normal":       0x00000020,   # NORMAL_PRIORITY_CLASS
+    "below_normal": 0x00004000,   # BELOW_NORMAL_PRIORITY_CLASS
+    "idle":         0x00000040,   # IDLE_PRIORITY_CLASS
+}
+
+
+def set_process_priority(priority: str) -> None:
+    """Set the Windows process priority class.
+
+    ``priority`` must be one of "normal", "below_normal", or "idle".
+    Unrecognised values silently fall back to NORMAL_PRIORITY_CLASS.
+    Silently ignored on non-Windows platforms or if the Win32 call fails.
+    """
+    cls = _PRIORITY_CLASS.get(priority, _PRIORITY_CLASS["normal"])
+    try:
+        handle = ctypes.windll.kernel32.GetCurrentProcess()
+        ctypes.windll.kernel32.SetPriorityClass(handle, cls)
+    except Exception:
+        pass
+
+
+def set_process_memory_limit(max_mb: int) -> None:
+    """Set (or remove) a soft working-set cap via SetProcessWorkingSetSizeEx.
+
+    max_mb < 256 or max_mb >= 4096 → remove any existing working-set limit.
+    Otherwise Windows will try to keep the resident set below max_mb MB
+    (soft cap — it can exceed it under overall memory pressure).
+
+    Silently ignored on non-Windows platforms or if the Win32 call fails.
+    """
+    # QUOTA_LIMITS_HARDWS flags to disable both min and max limits
+    _HARDWS_MIN_DISABLE = 0x00000002
+    _HARDWS_MAX_DISABLE = 0x00000008
+    try:
+        k32    = ctypes.windll.kernel32
+        handle = k32.GetCurrentProcess()
+        if max_mb < 256 or max_mb >= 4096:
+            # Disable both limits → let Windows manage the working set freely
+            k32.SetProcessWorkingSetSizeEx(
+                handle,
+                ctypes.c_size_t(0),
+                ctypes.c_size_t(0),
+                ctypes.c_ulong(_HARDWS_MIN_DISABLE | _HARDWS_MAX_DISABLE),
+            )
+        else:
+            min_ws = 1 * 1024 * 1024          # 1 MB minimum (Windows requirement)
+            max_ws = max_mb * 1024 * 1024
+            k32.SetProcessWorkingSetSizeEx(
+                handle,
+                ctypes.c_size_t(min_ws),
+                ctypes.c_size_t(max_ws),
+                ctypes.c_ulong(0),            # 0 = soft limits
+            )
+    except Exception:
+        pass
+
+
 def set_process_affinity(n_cores: int) -> None:
     """Limit the process to *n_cores* logical CPUs via SetProcessAffinityMask.
 
