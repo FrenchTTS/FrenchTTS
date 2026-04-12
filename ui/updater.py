@@ -27,32 +27,33 @@ from ui.utils import apply_window_transparency, _set_window_icon
 # Self-replacement
 # ---------------------------------------------------------------------------
 
-def _apply_update(close_fn, new_exe: str) -> None:
-    """Schedule a .bat-based self-replacement and close the current window.
+def _apply_update(close_fn, installer_exe: str) -> None:
+    """Launch FrenchTTSInstaller.exe to replace this exe, then close.
 
-    ``close_fn`` is called last so Tkinter releases the OS file lock before
-    the .bat tries to overwrite the executable. Passing a callable (rather
-    than the app object) keeps this function usable from any window.
+    The installer (downloaded to a temp directory) bundles the new FrenchTTS.exe
+    inside itself.  It receives our PID, waits for us to exit — releasing the OS
+    file lock on FrenchTTS.exe — then copies its bundled exe over sys.executable
+    and relaunches it.
+
+    Replaces the old .bat approach which crashed whenever sys.executable contained
+    non-ASCII characters (the bat was written with encoding="ascii").
+
+    If launching the installer fails, ``close_fn`` is intentionally NOT called so
+    the splash remains open and the user can choose "Continuer sans mise à jour".
     """
-    current  = sys.executable
-    bat_path = current + "_update.bat"
-    # Escape % signs in paths so cmd.exe does not treat them as variable references.
-    esc_current = current.replace("%", "%%")
-    esc_new_exe = new_exe.replace("%", "%%")
-    bat_content = (
-        "@echo off\n"
-        "timeout /t 2 /nobreak >nul\n"
-        f'move /y "{esc_new_exe}" "{esc_current}"\n'
-        f'start "" "{esc_current}"\n'
-        'del "%~f0"\n'
-    )
     try:
-        with open(bat_path, "w", encoding="ascii") as f:
-            f.write(bat_content)
         subprocess.Popen(
-            ["cmd", "/c", bat_path],
-            creationflags=subprocess.CREATE_NO_WINDOW)
+            [installer_exe,
+             "--pid",    str(os.getpid()),
+             "--target", sys.executable],
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW,
+            close_fds=True,
+        )
     except Exception:
+        try:
+            os.remove(installer_exe)
+        except OSError:
+            pass
         return
     close_fn()
 
@@ -262,7 +263,7 @@ class UpdaterSplash(ctk.CTk):
         if release_id != BUILD_ID:
             asset = next(
                 (a for a in data.get("assets", [])
-                 if a["name"] == f"{APP_NAME}.exe"),
+                 if a["name"] == f"{APP_NAME}Installer.exe"),
                 None)
             if asset is None:
                 self.after(0, lambda: self._show_error(
@@ -284,9 +285,16 @@ class UpdaterSplash(ctk.CTk):
     # --- Download -----------------------------------------------------------
 
     def _download(self, url: str, total_size: int) -> None:
-        """Download the release asset in 8 KB chunks (runs on the check thread)."""
-        exe_dir = os.path.dirname(sys.executable)
-        new_exe = os.path.join(exe_dir, f"{APP_NAME}_new.exe")
+        """Download FrenchTTSInstaller.exe in 8 KB chunks (runs on the check thread).
+
+        The file is saved to a temporary directory (not next to the exe) so it
+        works even when FrenchTTS.exe is installed in a write-protected location.
+        After a successful download the size and PE-header magic bytes are verified
+        before the installer is launched.
+        """
+        import tempfile
+        tmp_dir  = tempfile.mkdtemp(prefix="frenchtts_")
+        new_file = os.path.join(tmp_dir, f"{APP_NAME}Installer.exe")
         self.after(0, lambda: self._progress.stop())
         self.after(0, lambda: self._progress.configure(mode="determinate"))
         self.after(0, lambda: self._progress.set(0))
@@ -294,7 +302,7 @@ class UpdaterSplash(ctk.CTk):
             req = urllib.request.Request(url, headers={"User-Agent": APP_NAME})
             with urllib.request.urlopen(req, timeout=60) as resp:
                 downloaded = 0
-                with open(new_exe, "wb") as f:
+                with open(new_file, "wb") as f:
                     while True:
                         chunk = resp.read(8192)
                         if not chunk:
@@ -306,7 +314,7 @@ class UpdaterSplash(ctk.CTk):
                             self.after(0, lambda p=pct: self._set_progress(p))
         except OSError:
             try:
-                os.remove(new_exe)
+                os.remove(new_file)
             except OSError:
                 pass
             self.after(0, lambda: self._show_error(
@@ -315,18 +323,43 @@ class UpdaterSplash(ctk.CTk):
             return
         except Exception:
             try:
-                os.remove(new_exe)
+                os.remove(new_file)
             except OSError:
                 pass
             self.after(0, lambda: self._show_error(
                 "Erreur lors du téléchargement."))
             return
 
+        # --- Integrity checks -----------------------------------------------
+        if total_size > 0:
+            actual = os.path.getsize(new_file)
+            if actual != total_size:
+                try:
+                    os.remove(new_file)
+                except OSError:
+                    pass
+                self.after(0, lambda: self._show_error(
+                    f"Téléchargement incomplet ({actual}/{total_size} o).\n"
+                    "Réessayez."))
+                return
+        try:
+            with open(new_file, "rb") as _f:
+                if _f.read(2) != b"MZ":
+                    raise ValueError("not a PE executable")
+        except Exception:
+            try:
+                os.remove(new_file)
+            except OSError:
+                pass
+            self.after(0, lambda: self._show_error(
+                "Fichier téléchargé invalide.\nRéessayez."))
+            return
+
         # Success — clear the pending marker, then apply or simulate
         self._pending_download = None
         if getattr(sys, "frozen", False):
             self._launch_app = False
-            self.after(0, lambda: _apply_update(self.destroy, new_exe))
+            self.after(0, lambda: _apply_update(self.destroy, new_file))
         else:
             # Dev mode: show result without touching any executable
             self.after(0, lambda: self._status_lbl.configure(

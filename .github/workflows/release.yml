@@ -109,7 +109,8 @@ jobs:
           python -m pip install --upgrade pip --disable-pip-version-check
           python -m pip install -r requirements.txt pyinstaller --disable-pip-version-check
 
-      - name: Build executable
+      # Step 1 — build the main application
+      - name: Build FrenchTTS.exe
         run: >
           python -m PyInstaller
           --onefile
@@ -132,10 +133,23 @@ jobs:
           --hidden-import keyboard
           main.py
 
+      # Step 2 — build the installer (bundles dist/FrenchTTS.exe inside it)
+      - name: Build FrenchTTSInstaller.exe
+        run: >
+          python -m PyInstaller
+          --onefile
+          --windowed
+          --name FrenchTTSInstaller
+          --add-data "dist/FrenchTTS.exe;."
+          installer/installer_main.py
+
+      # Publish ONLY the installer as the release asset.
+      # Users always download FrenchTTSInstaller.exe — it contains FrenchTTS.exe
+      # inside, so the exe they run is guaranteed to match the release version.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "prod-${{ steps.ver.outputs.sha }}"
           name: "FrenchTTS prod-${{ steps.ver.outputs.sha }}"
           body_path: release_body.md
-          files: dist/FrenchTTS.exe
+          files: dist/FrenchTTSInstaller.exe

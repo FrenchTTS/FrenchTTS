@@ -19,9 +19,11 @@ if errorlevel 1 (
 )
 
 echo Cleaning up old builds...
-if exist build        rmdir /s /q build
-if exist dist         rmdir /s /q dist
-if exist FrenchTTS.spec del /q FrenchTTS.spec
+if exist build           rmdir /s /q build
+if exist dist            rmdir /s /q dist
+if exist installer\build rmdir /s /q installer\build
+if exist installer\dist  rmdir /s /q installer\dist
+if exist FrenchTTS.spec  del /q FrenchTTS.spec
 
 if not exist versions mkdir versions
 
@@ -33,7 +35,12 @@ if not defined GIT_SHA set GIT_SHA=dev
 (echo BUILD_ID = "%GIT_SHA%") > core\version.py
 echo Build ID: %GIT_SHA%
 
-echo Construction of the executable...
+:: -----------------------------------------------------------------------
+:: Step 1 — Build FrenchTTS.exe (main application)
+:: FrenchTTSInstaller.exe bundles this, so it must be built first.
+:: -----------------------------------------------------------------------
+echo.
+echo [1/2] Building FrenchTTS.exe...
 python -m PyInstaller ^
     --onefile ^
     --windowed ^
@@ -62,12 +69,34 @@ set BUILD_RESULT=%errorlevel%
 
 if %BUILD_RESULT% neq 0 (
     echo.
-    echo ERROR during build. See logs above.
+    echo ERROR during FrenchTTS.exe build. See logs above.
+    pause
+    exit /b 1
+)
+
+:: -----------------------------------------------------------------------
+:: Step 2 — Build FrenchTTSInstaller.exe (bundles dist\FrenchTTS.exe)
+:: -----------------------------------------------------------------------
+echo.
+echo [2/2] Building FrenchTTSInstaller.exe...
+if not exist installer\dist mkdir installer\dist
+
+python -m PyInstaller ^
+    --clean ^
+    installer\installer.spec ^
+    --distpath installer\dist ^
+    --workpath installer\build
+
+if errorlevel 1 (
+    echo.
+    echo ERROR during FrenchTTSInstaller.exe build. See logs above.
     pause
     exit /b 1
 )
 
 echo.
-echo Build complete. Executable: dist\FrenchTTS.exe  ^(build ID: %GIT_SHA%^)
+echo Build complete.
+echo   App:       dist\FrenchTTS.exe
+echo   Installer: installer\dist\FrenchTTSInstaller.exe  (build ID: %GIT_SHA%^)
 echo Config saved in: %%APPDATA%%\FrenchTTS\config.json
 pause

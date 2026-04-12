@@ -6,6 +6,7 @@ import asyncio
 import datetime
 import json
 import os
+import tempfile
 import threading
 import webbrowser
 
@@ -369,6 +370,16 @@ class FrenchTTSApp(ctk.CTk):
 
     # --- Config -------------------------------------------------------------
 
+    @staticmethod
+    def _strip_device_idx(name: str) -> str:
+        """Strip the leading 'N: ' sounddevice index prefix for stable storage.
+
+        sounddevice prepends a numeric index that can change whenever devices
+        are added, removed, or reordered.  Saving only the name portion makes
+        device preferences survive across reboots and hardware changes.
+        """
+        return name.split(": ", 1)[-1] if ": " in name else name
+
     def _load_settings(self) -> None:
         """Load config.json and apply values to all Tkinter vars.
 
@@ -376,8 +387,9 @@ class FrenchTTSApp(ctk.CTk):
         absent from the file (e.g. a new setting added in a later version)
         is silently defaulted rather than causing a KeyError.
 
-        Device matching uses substring search because the index prefix
-        ("2: ") may change between sessions if devices are added/removed.
+        Device matching compares only the name portion (index stripped) so a
+        device saved as "3: Headphones (Realtek)" is still found after a reboot
+        where the same device now appears as "2: Headphones (Realtek)".
         """
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -387,12 +399,16 @@ class FrenchTTSApp(ctk.CTk):
 
         if cfg["voice"] in VOICES:
             self.voice_var.set(cfg["voice"])
-        saved = cfg["device"]
+
+        strip = self._strip_device_idx
+
+        # Output device — match by name, ignoring index prefix
+        saved = strip(cfg["device"])
         if saved:
-            # Match on the device name portion, ignoring the index prefix
-            match = next((n for n in self._device_map if saved in n), None)
+            match = next((n for n in self._device_map if strip(n) == saved), None)
             if match:
                 self.device_var.set(match)
+
         self.rate_var.set(cfg["rate"])
         self.volume_var.set(cfg["volume"])
         self.pitch_var.set(cfg["pitch"])
@@ -400,11 +416,14 @@ class FrenchTTSApp(ctk.CTk):
         self.replay_key_var.set(str(cfg.get("replay_key", "F2")))
         self.stop_key_var.set(str(cfg.get("stop_key", "F3")))
         self.stt_enabled_var.set(bool(cfg.get("stt_enabled", True)))
-        saved_in = cfg.get("stt_input_device", "")
+
+        # STT input device
+        saved_in = strip(cfg.get("stt_input_device", ""))
         if saved_in:
-            match = next((n for n in self._input_device_map if saved_in in n), None)
+            match = next((n for n in self._input_device_map if strip(n) == saved_in), None)
             if match:
                 self.stt_input_var.set(match)
+
         # Apply saved STT enabled state to the button
         if not self.stt_enabled_var.get():
             self.mic_btn.grid_remove()
@@ -413,38 +432,61 @@ class FrenchTTSApp(ctk.CTk):
         self.stt_auto_restart_var.set(bool(cfg.get("stt_auto_restart", False)))
 
         self.monitor_enabled_var.set(bool(cfg.get("monitor_enabled", False)))
-        saved_mon = cfg.get("monitor_device", "")
+
+        # Monitor device
+        saved_mon = strip(cfg.get("monitor_device", ""))
         if saved_mon:
-            match = next((n for n in self._device_map if saved_mon in n), None)
+            match = next((n for n in self._device_map if strip(n) == saved_mon), None)
             if match:
                 self.monitor_device_var.set(match)
+
         self._last_seen_version = str(cfg.get("last_seen_version", ""))
 
     def _save_settings(self) -> None:
         """Persist current Tkinter var values to config.json.
 
-        Called on window close and on quit-from-tray. Failures (permission
-        error, disk full) are silently ignored to avoid a crash on shutdown.
+        Device names are stored WITHOUT the sounddevice index prefix so the
+        saved preference remains valid even when the device index changes on
+        the next boot (e.g. "3: Headphones" → saved as "Headphones").
+
+        Uses an atomic write (temp file + os.replace) so a crash or power loss
+        mid-write never corrupts config.json — the old file is kept intact until
+        the new one is fully flushed and renamed.
+
+        Called on window close and on quit-from-tray. OS errors are silently
+        ignored to avoid a crash on shutdown.
         """
+        strip = self._strip_device_idx
+        payload = json.dumps({
+            "voice":             self.voice_var.get(),
+            "device":            strip(self.device_var.get()),
+            "rate":              self.rate_var.get(),
+            "volume":            self.volume_var.get(),
+            "pitch":             self.pitch_var.get(),
+            "opacity":           round(self.opacity_var.get(), 2),
+            "replay_key":        self.replay_key_var.get(),
+            "stop_key":          self.stop_key_var.get(),
+            "stt_enabled":       self.stt_enabled_var.get(),
+            "stt_input_device":  strip(self.stt_input_var.get()),
+            "monitor_enabled":   self.monitor_enabled_var.get(),
+            "monitor_device":    strip(self.monitor_device_var.get()),
+            "stt_key":           self.stt_key_var.get(),
+            "stt_auto_restart":  self.stt_auto_restart_var.get(),
+            "last_seen_version": self._last_seen_version,
+        }, indent=2, ensure_ascii=False)
         try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump({
-                    "voice":            self.voice_var.get(),
-                    "device":           self.device_var.get(),
-                    "rate":             self.rate_var.get(),
-                    "volume":           self.volume_var.get(),
-                    "pitch":            self.pitch_var.get(),
-                    "opacity":          round(self.opacity_var.get(), 2),
-                    "replay_key":       self.replay_key_var.get(),
-                    "stop_key":         self.stop_key_var.get(),
-                    "stt_enabled":      self.stt_enabled_var.get(),
-                    "stt_input_device": self.stt_input_var.get(),
-                    "monitor_enabled":  self.monitor_enabled_var.get(),
-                    "monitor_device":   self.monitor_device_var.get(),
-                    "stt_key":          self.stt_key_var.get(),
-                    "stt_auto_restart": self.stt_auto_restart_var.get(),
-                    "last_seen_version": self._last_seen_version,
-                }, f, indent=2, ensure_ascii=False)
+            fd, tmp = tempfile.mkstemp(
+                dir=os.path.dirname(CONFIG_FILE), suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(payload)
+                os.replace(tmp, CONFIG_FILE)   # atomic on Windows (same volume)
+            except BaseException:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
         except OSError:
             pass
 

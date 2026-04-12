@@ -90,7 +90,6 @@ DEFAULT_SETTINGS: dict = {
     "opacity":    0.93,  # 1.0 = fully opaque (acrylic disabled)
     "replay_key":      "F2",     # Tkinter keysym — also used as keyboard lib hotkey
     "stop_key":        "F3",     # same format; triggers the Stop action globally
-    "stt_model_size":  "small",  # faster-whisper model size
     "stt_enabled":      False,  # show/hide the STT button (disabled by default)
     "stt_input_device": "",    # empty → system default microphone
     "stt_key":          "F1",  # keybind to toggle STT (Tkinter keysym)
