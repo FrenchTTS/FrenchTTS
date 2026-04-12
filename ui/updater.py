@@ -10,6 +10,7 @@ then deletes itself.
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -80,6 +81,7 @@ class UpdaterSplash(ctk.CTk):
         super().__init__()
         self._launch_app       = True   # False only when an update is applied
         self._pending_download = None   # (url, size) set once a download begins
+        self._tmp_dir          = None   # temp directory created by _download; cleaned on exit
         self._drag_x = 0
         self._drag_y = 0
 
@@ -225,6 +227,9 @@ class UpdaterSplash(ctk.CTk):
     def _on_skip(self) -> None:
         """Dismiss the splash and open the main app without updating."""
         self._launch_app = True
+        if self._tmp_dir:
+            shutil.rmtree(self._tmp_dir, ignore_errors=True)
+            self._tmp_dir = None
         self.destroy()
 
     # --- Update check -------------------------------------------------------
@@ -307,8 +312,12 @@ class UpdaterSplash(ctk.CTk):
         before the installer is launched.
         """
         import tempfile
-        tmp_dir  = tempfile.mkdtemp(prefix="frenchtts_")
-        new_file = os.path.join(tmp_dir, f"{APP_NAME}Installer.exe")
+        # Clean up any previous temp dir before creating a new one (retry case)
+        if self._tmp_dir:
+            shutil.rmtree(self._tmp_dir, ignore_errors=True)
+        tmp_dir       = tempfile.mkdtemp(prefix="frenchtts_")
+        self._tmp_dir = tmp_dir
+        new_file      = os.path.join(tmp_dir, f"{APP_NAME}Installer.exe")
         self.after(0, lambda: self._progress.stop())
         self.after(0, lambda: self._progress.configure(mode="determinate"))
         self.after(0, lambda: self._progress.set(0))
@@ -369,8 +378,9 @@ class UpdaterSplash(ctk.CTk):
                 "Fichier téléchargé invalide.\nRéessayez."))
             return
 
-        # Success — clear the pending marker, then apply or simulate
+        # Success — clear the pending marker and temp-dir tracker, then apply or simulate
         self._pending_download = None
+        self._tmp_dir = None   # ownership transferred to the installer process
         if getattr(sys, "frozen", False):
             def _on_apply():
                 if _apply_update(new_file):

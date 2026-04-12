@@ -102,6 +102,7 @@ DEFAULT_SETTINGS: dict = {
     "device_idx":        None, # sounddevice index of the TTS output device
     "stt_input_idx":     None, # sounddevice index of the STT microphone
     "monitor_idx":       None, # sounddevice index of the monitor/headphone device
+    "cpu_cores":         0,    # number of logical CPUs to use; 0 = all (no throttle)
 }
 
 # Ghost-style button appearance reused for secondary actions in both windows.

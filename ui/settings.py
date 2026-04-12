@@ -2,6 +2,8 @@
 FrenchTTS — settings window.
 """
 
+import os
+
 import customtkinter as ctk
 
 from core.constants import (APP_NAME, VOICES, _BTN_SECONDARY,
@@ -50,6 +52,22 @@ class SettingsWindow(ctk.CTkToplevel):
         self.after(50,  self.lift)
         self.after(120, lambda: apply_window_transparency(self, self._app.opacity_var.get()))
         self.after(250, lambda: force_taskbar_presence(self))
+
+    def destroy(self) -> None:
+        """Cancel pending after() callbacks before destroying the window.
+
+        Prevents TclError from after-callbacks that fire on an already-destroyed
+        window (e.g. lift/transparency/taskbar callbacks scheduled at startup).
+        """
+        try:
+            for aid in self.tk.call("after", "info").split():
+                try:
+                    self.after_cancel(aid)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        super().destroy()
 
     # --- Layout -------------------------------------------------------------
 
@@ -231,6 +249,36 @@ class SettingsWindow(ctk.CTkToplevel):
                       ).grid(row=23, column=2, padx=(0, 14), pady=5)
         self._app._populate_input_devices(widget=self.stt_input_menu)
 
+        self._separator(row=24)
+
+        # ── Section: Performances ─────────────────────────────────────────────
+        self._section_label(row=25, text="Performances")
+
+        ncpus = os.cpu_count() or 1
+        ctk.CTkLabel(frm, text="Ordinateur Patate :").grid(row=26, column=0, **LBL)
+        cpu_frame = ctk.CTkFrame(frm, fg_color="transparent")
+        cpu_frame.grid(row=26, column=1, columnspan=2, sticky="ew", **CTL)
+        cpu_frame.columnconfigure(0, weight=1)
+        self._cpu_lbl = ctk.CTkLabel(
+            cpu_frame,
+            text=self._fmt_cores(self._app.cpu_cores_var.get(), ncpus),
+            width=100, anchor="w")
+        ctk.CTkSlider(
+            cpu_frame,
+            from_=1, to=max(ncpus, 2), number_of_steps=max(ncpus - 1, 1),
+            variable=self._app.cpu_cores_var,
+            command=lambda v: self._on_cpu_change(int(round(v)), ncpus),
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self._cpu_lbl.grid(row=0, column=1)
+        ctk.CTkLabel(
+            frm,
+            text=("Limite les cœurs CPU utilisés par l'app  •  "
+                  "Minimum recommandé : 2 (1 sans STT)"),
+            font=ctk.CTkFont(size=10),
+            text_color=("gray50", "gray50"),
+            anchor="w",
+        ).grid(row=27, column=0, columnspan=3, padx=16, pady=(0, 6), sticky="w")
+
         # ── Fixed footer ────────────────────────────────────────────────────
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.grid(row=2, column=0, pady=(8, 12))
@@ -286,6 +334,17 @@ class SettingsWindow(ctk.CTkToplevel):
         lbl.grid(row=0, column=1)
 
     # --- Event handlers -------------------------------------------------------
+
+    @staticmethod
+    def _fmt_cores(n: int, total: int) -> str:
+        if n >= total:
+            return f"Tous ({total})"
+        return f"{n} / {total} cœur{'s' if n > 1 else ''}"
+
+    def _on_cpu_change(self, n: int, total: int) -> None:
+        self._app.cpu_cores_var.set(n)
+        self._cpu_lbl.configure(text=self._fmt_cores(n, total))
+        self._app._apply_cpu_affinity()
 
     def _on_opacity_change(self, value: float) -> None:
         val = round(float(value), 2)

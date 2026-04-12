@@ -36,7 +36,7 @@ from core.sounds import (
 from ui.utils import (
     _get_icon_path, make_tray_image,
     _set_window_icon, apply_window_transparency,
-    send_notification,
+    send_notification, set_process_affinity,
 )
 from ui.settings import SettingsWindow
 from voice.listener import STTListener, _get_model
@@ -66,8 +66,13 @@ class FrenchTTSApp(ctk.CTk):
         self._tts_busy   = threading.Event()
         # Persistent asyncio event loop running in a daemon thread.
         # Avoids the per-call loop creation overhead of the old one-thread-per-TTS model.
-        self._loop       = asyncio.new_event_loop()
-        threading.Thread(target=self._loop.run_forever,
+        self._loop = asyncio.new_event_loop()
+
+        def _run_loop(loop: asyncio.AbstractEventLoop) -> None:
+            asyncio.set_event_loop(loop)   # make loop discoverable on this thread
+            loop.run_forever()
+
+        threading.Thread(target=_run_loop, args=(self._loop,),
                          daemon=True, name="tts-loop").start()
         # Maps dropdown display strings ("2: CABLE Input ...") to device
         # indices accepted by sounddevice. Rebuilt on demand via ↺.
@@ -123,6 +128,7 @@ class FrenchTTSApp(ctk.CTk):
         self._input_device_map:   dict[str, int] = {}
         self.monitor_enabled_var  = ctk.BooleanVar(value=False)
         self.monitor_device_var   = ctk.StringVar()
+        self.cpu_cores_var        = ctk.IntVar(value=os.cpu_count() or 1)
         self._last_seen_version: str = ""   # loaded by _load_settings
 
         # --- Boot sequence --------------------------------------------------
@@ -491,6 +497,12 @@ class FrenchTTSApp(ctk.CTk):
 
         self._last_seen_version = str(cfg.get("last_seen_version", ""))
 
+        # CPU throttle
+        ncpus     = os.cpu_count() or 1
+        raw_cores = int(cfg.get("cpu_cores", 0))
+        self.cpu_cores_var.set(raw_cores if 0 < raw_cores <= ncpus else ncpus)
+        self._apply_cpu_affinity()
+
     def _save_settings(self) -> None:
         """Persist current Tkinter var values to config.json.
 
@@ -527,6 +539,8 @@ class FrenchTTSApp(ctk.CTk):
             "stt_notify":        self.stt_notify_var.get(),
             "last_seen_version": self._last_seen_version,
             "version":           BUILD_ID,
+            "cpu_cores":         (0 if self.cpu_cores_var.get() >= (os.cpu_count() or 1)
+                                  else self.cpu_cores_var.get()),
         }, indent=2, ensure_ascii=False)
         try:
             fd, tmp = tempfile.mkstemp(
@@ -543,6 +557,16 @@ class FrenchTTSApp(ctk.CTk):
                 raise
         except OSError:
             pass
+
+    def _apply_cpu_affinity(self) -> None:
+        """Apply the cpu_cores_var setting via SetProcessAffinityMask.
+
+        Called from _load_settings (startup) and from the settings slider
+        (live change). When cpu_cores_var == os.cpu_count() the full affinity
+        is restored (no throttle). set_process_affinity handles clamping and
+        platform guards.
+        """
+        set_process_affinity(self.cpu_cores_var.get())
 
     # --- What's New ---------------------------------------------------------
 
@@ -659,14 +683,14 @@ class FrenchTTSApp(ctk.CTk):
         try:
             self._hk_replay = keyboard.add_hotkey(
                 self.replay_key_var.get().lower(),
-                lambda: self.after(0, self._on_replay))
+                lambda: self._safe_after(self._on_replay))
         except Exception:
             self._hk_replay = None
 
         try:
             self._hk_stop = keyboard.add_hotkey(
                 self.stop_key_var.get().lower(),
-                lambda: self.after(0, self._on_stop))
+                lambda: self._safe_after(self._on_stop))
         except Exception:
             self._hk_stop = None
 
@@ -674,11 +698,23 @@ class FrenchTTSApp(ctk.CTk):
             try:
                 self._hk_stt = keyboard.add_hotkey(
                     self.stt_key_var.get().lower(),
-                    lambda: self.after(0, self._on_mic_toggle))
+                    lambda: self._safe_after(self._on_mic_toggle))
             except Exception:
                 self._hk_stt = None
         else:
             self._hk_stt = None
+
+    def _safe_after(self, fn) -> None:
+        """Marshal *fn* to the Tkinter main thread, ignoring destroyed-window errors.
+
+        Keyboard-library and other non-Tkinter threads call this instead of
+        ``self.after(0, fn)`` directly so that a hotkey pressed while the window
+        is shutting down does not raise a TclError.
+        """
+        try:
+            self.after(0, fn)
+        except Exception:
+            pass
 
     # --- Settings window ----------------------------------------------------
 
@@ -1103,13 +1139,15 @@ class FrenchTTSApp(ctk.CTk):
             try:
                 await coro_factory()
             except Exception as e:
-                self.after(0, lambda: self._set_status(
-                    f"{STATUS_ERROR}: {str(e)[:80]}"))
+                self._safe_after(
+                    lambda msg=str(e)[:80]: self._set_status(
+                        f"{STATUS_ERROR}: {msg}"))
             finally:
                 self._tts_busy.clear()
                 if not self._stop_event.is_set():
-                    self.after(0, self._restore_ui)
-                    self.after(0, self._maybe_auto_restart_stt)
+                    # Window may be in shutdown; _safe_after swallows TclError.
+                    self._safe_after(self._restore_ui)
+                    self._safe_after(self._maybe_auto_restart_stt)
 
         asyncio.run_coroutine_threadsafe(_wrapper(), self._loop)
 
@@ -1176,6 +1214,7 @@ class FrenchTTSApp(ctk.CTk):
 
         # --- Optional monitor stream ----------------------------------------
         monitor_stream = None
+        monitor_thread = None
         if self.monitor_enabled_var.get():
             m_idx = self._device_map.get(self.monitor_device_var.get())
             if m_idx is not None and m_idx != primary_idx:
@@ -1184,10 +1223,11 @@ class FrenchTTSApp(ctk.CTk):
                         samplerate=samplerate, device=m_idx,
                         channels=1, dtype="int16", latency='low')
                     monitor_stream.start()
-                    threading.Thread(
+                    monitor_thread = threading.Thread(
                         target=self._write_monitor_pcm,
                         args=(monitor_stream, pcm),
-                        daemon=True).start()
+                        daemon=True)
+                    monitor_thread.start()
                 except Exception:
                     if monitor_stream is not None:
                         try:
@@ -1195,6 +1235,7 @@ class FrenchTTSApp(ctk.CTk):
                         except Exception:
                             pass
                     monitor_stream = None
+                    monitor_thread = None
 
         # --- Wait in executor: 5 ms resolution, event loop stays free -------
         stop = self._stop_event
@@ -1221,6 +1262,10 @@ class FrenchTTSApp(ctk.CTk):
                     pass
             return
 
+        # Natural finish: wait for the monitor write to drain before closing.
+        # join() with a generous timeout so we never block indefinitely.
+        if monitor_thread is not None:
+            monitor_thread.join(timeout=30)
         if monitor_stream is not None:
             try:
                 monitor_stream.stop()

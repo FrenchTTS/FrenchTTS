@@ -182,6 +182,24 @@ def force_taskbar_presence(window) -> None:
         pass
 
 
+def set_process_affinity(n_cores: int) -> None:
+    """Limit the process to *n_cores* logical CPUs via SetProcessAffinityMask.
+
+    Uses the first n_cores logical processors (bits 0..n-1 of the mask).
+    Values <= 0 or >= os.cpu_count() are clamped to the full mask (no throttle).
+    Silently ignored on non-Windows platforms or if the Win32 call fails.
+    """
+    import os
+    ncpus = os.cpu_count() or 1
+    n = max(1, min(n_cores, ncpus))
+    mask = (1 << n) - 1
+    try:
+        handle = ctypes.windll.kernel32.GetCurrentProcess()
+        ctypes.windll.kernel32.SetProcessAffinityMask(handle, mask)
+    except Exception:
+        pass
+
+
 def apply_window_transparency(window, opacity: float) -> None:
     """Set window alpha and, when opacity < 1.0, enable acrylic blur.
 

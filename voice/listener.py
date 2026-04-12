@@ -67,12 +67,16 @@ def _get_model(model_size: str = STT_MODEL_SIZE) -> WhisperModel:
     global _model
     with _model_lock:
         if _model is None:
-            _model = WhisperModel(
-                model_size,
-                device=STT_DEVICE,
-                compute_type=STT_COMPUTE,
-                download_root=STT_MODEL_DIR,
-            )
+            try:
+                _model = WhisperModel(
+                    model_size,
+                    device=STT_DEVICE,
+                    compute_type=STT_COMPUTE,
+                    download_root=STT_MODEL_DIR,
+                )
+            except Exception:
+                _model = None   # reset so the next call retries the load
+                raise
     return _model
 
 
