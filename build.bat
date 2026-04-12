@@ -47,6 +47,7 @@ python -m PyInstaller ^
     --icon img\icon.ico ^
     --add-data "img;img" ^
     --add-data "versions;versions" ^
+    --add-data "audio;audio" ^
     --collect-all customtkinter ^
     --collect-all pystray ^
     --collect-all PIL ^

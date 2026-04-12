@@ -29,7 +29,7 @@ from core.constants import (
 )
 from core.audio import _decode_mp3, trim_silence, save_mp3
 from core.sounds import (
-    ensure_sounds, play_sound,
+    play_sound,
     SND_RECOGNIZING, SND_RECOGNIZED, SND_NOT_RECOGNIZED,
 )
 from ui.utils import (
@@ -131,8 +131,6 @@ class FrenchTTSApp(ctk.CTk):
         self.geometry(f"490x{self.winfo_reqheight()}")
         self.resizable(False, False)
         _set_window_icon(self)
-
-        ensure_sounds()   # generate audio/*.wav if absent
 
         self._listener = STTListener(
             on_transcript=self._on_stt_transcript,

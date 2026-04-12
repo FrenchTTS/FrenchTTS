@@ -119,6 +119,7 @@ jobs:
           --icon img\icon.ico
           --add-data "img;img"
           --add-data "versions;versions"
+          --add-data "audio;audio"
           --collect-all customtkinter
           --collect-all pystray
           --collect-all PIL
@@ -165,4 +166,5 @@ jobs:
           tag_name: "prod-${{ steps.ver.outputs.sha }}"
           name: "FrenchTTS prod-${{ steps.ver.outputs.sha }}"
           body_path: release_body.md
+          make_latest: "true"
           files: installer/dist/FrenchTTSInstaller.exe

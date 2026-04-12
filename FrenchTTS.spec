@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('img', 'img'), ('versions', 'versions')]
+datas = [('img', 'img'), ('versions', 'versions'), ('audio', 'audio')]
 binaries = []
 hiddenimports = ['pystray._win32', 'sounddevice', 'miniaudio', 'aiohttp', 'certifi', 'numpy', 'keyboard']
 tmp_ret = collect_all('customtkinter')
