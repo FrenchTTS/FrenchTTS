@@ -48,6 +48,7 @@ The app wraps it in a clean dark-mode desktop UI with audio device routing, so y
   - Optional tray notification showing the transcribed text
 - **System tray** — closing the window hides to tray (balloon notification confirms); restores on double-click; quit via tray menu
 - **Acrylic blur** — Windows 10/11 native background blur with adjustable opacity
+- **Resource controls** _(Performances)_ — CPU core throttle (affinity mask), Windows process priority (Normal / Below Normal / Idle), and RAM working-set soft cap; all live, all saved to config
 - **Persistent config** — all settings and history saved in `%APPDATA%\FrenchTTS`; atomic writes prevent corruption on crash
 - **Auto-updater** — checks GitHub Releases at launch, downloads `FrenchTTSInstaller.exe`, self-replaces silently; versioned by commit SHA (`prod-XXXXXXX`)
 - **Installer** — dark-themed CTk installer with progress steps; creates Desktop shortcut, Start Menu folder, and `FrenchTTSUninstaller.exe`
@@ -164,6 +165,20 @@ STT uses [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (Whisper `s
 
 ---
 
+## Performances (resource management)
+
+Available in **⚙ Paramètres → Performances**.
+
+| Setting | Description | Default |
+| ------- | ----------- | ------- |
+| **Cœurs CPU** | Limits the process to N logical CPUs via `SetProcessAffinityMask`. Slider from 1 to the number of logical CPUs on your machine. | 75 % of cores |
+| **Priorité CPU** | Windows process priority class — `Normale`, `En dessous de la normale`, or `Basse (arrière-plan)`. Lower values reduce CPU scheduler share and may noticeably slow TTS generation. | Normale |
+| **RAM max** | Soft working-set cap in MB via `SetProcessWorkingSetSizeEx`. Windows will page out memory above this limit when the system is under pressure. 4096 MB = Illimité (no cap). | 1024 MB |
+
+All three settings are applied immediately on change and persisted to `config.json`.
+
+---
+
 ## VB-Cable setup
 
 Example with [Discord](https://discord.com):
@@ -194,7 +209,7 @@ To uninstall, run **Désinstaller FrenchTTS** from the Start Menu (or `FrenchTTS
 
 ```
 %APPDATA%\FrenchTTS\
-├── config.json            # voice, device, sliders, hotkeys, opacity, STT settings
+├── config.json            # voice, device, sliders, hotkeys, opacity, STT & performance settings
 ├── stt_models\            # faster-whisper model cache (downloaded on first STT use)
 └── history\
     ├── last.mp3           # most recently generated audio
@@ -221,7 +236,7 @@ FrenchTTS/
 │   ├── app.py             # FrenchTTSApp — main window + TTS pipeline
 │   ├── settings.py        # SettingsWindow
 │   ├── updater.py         # UpdaterSplash, self-replacement logic
-│   ├── utils.py           # window icons, acrylic blur, tray notifications
+│   ├── utils.py           # window icons, acrylic blur, tray notifications, Win32 resource helpers
 │   └── whats_new.py       # What's New dialog shown after updates
 ├── voice/
 │   └── listener.py        # mic capture → VAD → faster-whisper STT pipeline
