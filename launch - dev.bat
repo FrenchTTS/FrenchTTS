@@ -12,7 +12,7 @@ if errorlevel 1 (
 )
 
 echo  Lancement de l'application (mode dev)...
-echo  Le splash de mise a jour s'affiche puis l'app principale s'ouvre.
+echo  Le splash de mise a jour est bypasse, l'app s'ouvre directement.
 echo.
 python main.py
 if errorlevel 1 (

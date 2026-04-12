@@ -44,9 +44,9 @@ if errorlevel 1 (
 
 echo.
 echo  Environnement pret. Vous pouvez maintenant utiliser :
-echo    launch.bat            - lancer l'app en dev
-echo    launch - update.bat   - simuler une mise a jour
-echo    test - installer.bat  - tester l'installateur compile
-echo    build.bat             - compiler les .exe de release
+echo    launch - dev.bat        - lancer l'app en dev
+echo    launch - update.bat     - simuler une mise a jour
+echo    launch - installer.bat  - tester l'installateur compile
+echo    build.bat               - compiler les .exe de release
 echo.
 pause
