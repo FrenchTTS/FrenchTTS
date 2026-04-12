@@ -20,7 +20,7 @@ import customtkinter as ctk
 
 from core.constants import APP_NAME, GITHUB_REPO, _BTN_SECONDARY
 from core.version import BUILD_ID
-from ui.utils import apply_window_transparency, _set_window_icon
+from ui.utils import apply_window_transparency
 
 
 # ---------------------------------------------------------------------------
@@ -80,17 +80,20 @@ class UpdaterSplash(ctk.CTk):
         super().__init__()
         self._launch_app       = True   # False only when an update is applied
         self._pending_download = None   # (url, size) set once a download begins
+        self._drag_x = 0
+        self._drag_y = 0
 
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
-        self.title(APP_NAME)
+        # Remove the native Windows title bar — the window is purely content.
+        # WM_DELETE_WINDOW is kept as a no-op guard even though there is no
+        # visible close button, in case the window manager sends the event.
+        self.overrideredirect(True)
         self.resizable(False, False)
-        # Prevent accidental close mid-download (would leave a partial .exe on disk)
         self.protocol("WM_DELETE_WINDOW", lambda: None)
 
         self._build()
         self._recenter()
-        _set_window_icon(self)
         self.after(150, lambda: apply_window_transparency(self, 0.93))
         self.after(300, self._start_check)
 
@@ -120,10 +123,14 @@ class UpdaterSplash(ctk.CTk):
         self.columnconfigure(0, weight=1)
         self.configure(padx=40)
 
-        ctk.CTkLabel(
+        title_lbl = ctk.CTkLabel(
             self, text=APP_NAME,
             font=ctk.CTkFont(size=20, weight="bold")
-        ).grid(row=0, column=0, pady=(28, 6))
+        )
+        title_lbl.grid(row=0, column=0, pady=(28, 6))
+        # Dragging the title label moves the borderless window.
+        title_lbl.bind("<ButtonPress-1>", self._on_drag_start)
+        title_lbl.bind("<B1-Motion>",     self._on_drag_move)
 
         self._status_lbl = ctk.CTkLabel(
             self,
@@ -176,6 +183,15 @@ class UpdaterSplash(ctk.CTk):
         x = (self.winfo_screenwidth()  - w) // 2
         y = (self.winfo_screenheight() - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
+
+    # --- Window drag (no native title bar) ----------------------------------
+
+    def _on_drag_start(self, event) -> None:
+        self._drag_x = event.x_root - self.winfo_x()
+        self._drag_y = event.y_root - self.winfo_y()
+
+    def _on_drag_move(self, event) -> None:
+        self.geometry(f"+{event.x_root - self._drag_x}+{event.y_root - self._drag_y}")
 
     # --- Error state --------------------------------------------------------
 

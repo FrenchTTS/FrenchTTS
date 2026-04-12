@@ -151,7 +151,7 @@ class FrenchTTSApp(ctk.CTk):
         self._bind_stt_key()         # must run after _load_settings sets stt_key_var
         self._bind_global_hotkeys()  # register replay+stop hotkeys system-wide
 
-        self.protocol("WM_DELETE_WINDOW", self._shutdown)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.bind("<Unmap>", self._on_unmap)
         # Delay _ready so startup Unmap events are ignored.
         self.after(400, lambda: setattr(self, "_ready", True))
@@ -632,6 +632,29 @@ class FrenchTTSApp(ctk.CTk):
         self._settings_win = SettingsWindow(self)
 
     # --- System tray --------------------------------------------------------
+
+    def _on_close(self) -> None:
+        """Redirect the X-button to the system tray instead of quitting.
+
+        Shows a balloon notification once the tray icon is registered so the
+        user knows where the application went.
+        """
+        if self._in_tray:
+            return
+        self._in_tray = True
+        self._hide_to_tray()
+        self.after(800, self._tray_notify_hidden)
+
+    def _tray_notify_hidden(self) -> None:
+        """Send a balloon notification from the tray icon."""
+        if self._tray_icon:
+            try:
+                self._tray_icon.notify(
+                    f"{APP_NAME} continue en arrière-plan.\n"
+                    "Cliquez sur l'icône pour réouvrir.",
+                    APP_NAME)
+            except Exception:
+                pass
 
     def _on_unmap(self, event) -> None:
         """Intercept window minimise and redirect to system tray.
