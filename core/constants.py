@@ -10,12 +10,12 @@ import sys
 
 from core.version import BUILD_ID
 
-# Paths — all user data lives under %APPDATA%\FrenchTTS.
+# Paths — all user data lives under %APPDATA%\UseVoice\FrenchTTS.
 # The app never writes next to its own exe (UAC-restricted installs,
 # PyInstaller bundles that unpack to Program Files are both supported).
 
 APPDATA     = os.environ.get("APPDATA", os.path.expanduser("~"))
-BASE_DIR    = os.path.join(APPDATA, "FrenchTTS")
+BASE_DIR    = os.path.join(APPDATA, "UseVoice", "FrenchTTS")
 HISTORY_DIR = os.path.join(BASE_DIR, "history")
 LAST_MP3    = os.path.join(HISTORY_DIR, "last.mp3")   # overwritten each generation
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
@@ -46,7 +46,7 @@ VOICES: dict[str, str] = {
 }
 
 APP_NAME = "FrenchTTS"
-APP_URL  = "https://frenchtts.github.io"
+APP_URL  = "https://tts.usevoice.fr"
 
 # "prod-4d45892" in a frozen release build, "dev-latest" in all other cases.
 # The BUILD_ID != "dev" guard prevents "prod-dev" appearing if someone runs
@@ -57,7 +57,7 @@ APP_VERSION_DISPLAY = (
     else "dev-latest"
 )
 
-GITHUB_REPO = "FrenchTTS/FrenchTTS"  # owner/repo for the GitHub Releases API
+GITHUB_REPO = "UseVoice/FrenchTTS"  # owner/repo for the GitHub Releases API
 
 # UI status strings
 

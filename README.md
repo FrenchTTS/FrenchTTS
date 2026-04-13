@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/platform-Windows-informational?style=flat-square" alt="Windows"/>
   <img src="https://img.shields.io/badge/TTS-edge--tts-blueviolet?style=flat-square" alt="edge-tts"/>
   <img src="https://img.shields.io/badge/STT-faster--whisper-orange?style=flat-square" alt="faster-whisper"/>
-  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT"/>
+  <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="AGPL-3.0"/>
 </p>
 
 <p align="center">
@@ -49,7 +49,7 @@ The app wraps it in a clean dark-mode desktop UI with audio device routing, so y
 - **System tray** — closing the window hides to tray (balloon notification confirms); restores on double-click; quit via tray menu
 - **Acrylic blur** — Windows 10/11 native background blur with adjustable opacity
 - **Resource controls** _(Performances)_ — CPU core throttle (affinity mask), Windows process priority (Normal / Below Normal / Idle), and RAM working-set soft cap; all live, all saved to config
-- **Persistent config** — all settings and history saved in `%APPDATA%\FrenchTTS`; atomic writes prevent corruption on crash
+- **Persistent config** — all settings and history saved in `%APPDATA%\UseVoice\FrenchTTS`; atomic writes prevent corruption on crash
 - **Auto-updater** — checks GitHub Releases at launch, downloads `FrenchTTSInstaller.exe`, self-replaces silently; versioned by commit SHA (`prod-XXXXXXX`)
 - **Installer** — dark-themed CTk installer with progress steps; creates Desktop shortcut, Start Menu folder, and `FrenchTTSUninstaller.exe`
 - **Uninstaller** — removes app, config, STT models, shortcuts, and Start Menu entries
@@ -88,7 +88,7 @@ All voices are neural quality, streamed in real time from Microsoft Edge TTS ser
 ##### Dev mode (no updater splash)
 
 ```bash
-git clone https://github.com/FrenchTTS/FrenchTTS.git
+git clone https://github.com/UseVoice/FrenchTTS.git
 cd FrenchTTS
 pip install -r requirements.txt
 python main.py
@@ -151,7 +151,7 @@ STT uses [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (Whisper `s
 
 **Flow:** press the STT button (or `F1`) → speak → silence is detected automatically → text is transcribed → TTS plays it back.
 
-**First use:** the Whisper model (~460 MB) is downloaded once to `%APPDATA%\FrenchTTS\stt_models` and cached for all future sessions.
+**First use:** the Whisper model (~460 MB) is downloaded once to `%APPDATA%\UseVoice\FrenchTTS\stt_models` and cached for all future sessions.
 
 **Settings:**
 
@@ -193,10 +193,10 @@ To also hear the output in your own headphones, enable **Casque** in settings an
 
 ## Installation
 
-Download `FrenchTTSInstaller.exe` from the [latest release](https://github.com/FrenchTTS/FrenchTTS/releases/latest) and run it.
+Download `FrenchTTSInstaller.exe` from the [latest release](https://github.com/UseVoice/FrenchTTS/releases/latest) and run it.
 
 The installer:
-- Extracts `FrenchTTS.exe` to `%LOCALAPPDATA%\FrenchTTS\`
+- Extracts `FrenchTTS.exe` to `%LOCALAPPDATA%\UseVoice\FrenchTTS\`
 - Creates a Desktop shortcut
 - Creates a **Start Menu** folder (`FrenchTTS`) with shortcuts for the app and the uninstaller
 - Extracts `FrenchTTSUninstaller.exe` alongside the app
@@ -208,14 +208,14 @@ To uninstall, run **Désinstaller FrenchTTS** from the Start Menu (or `FrenchTTS
 ## Data & file structure
 
 ```
-%APPDATA%\FrenchTTS\
+%APPDATA%\UseVoice\FrenchTTS\
 ├── config.json            # voice, device, sliders, hotkeys, opacity, STT & performance settings
 ├── stt_models\            # faster-whisper model cache (downloaded on first STT use)
 └── history\
     ├── last.mp3           # most recently generated audio
     └── lasts.log          # spoken text history (JSON array, max 100 entries)
 
-%LOCALAPPDATA%\FrenchTTS\
+%LOCALAPPDATA%\UseVoice\FrenchTTS\
 ├── FrenchTTS.exe          # installed application
 └── FrenchTTSUninstaller.exe
 ```
@@ -275,4 +275,14 @@ FrenchTTS/
 
 ## License
 
-MIT — © [FrenchTTS](https://frenchtts.github.io)
+This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+© 2026 UseVoice
+
+You are free to use, modify, and distribute this software, provided that:
+- The source code remains available.
+- Any modifications are released under the same AGPL-3.0 license.
+- If the software is used over a network (e.g., as a SaaS), the corresponding source code must be made publicly available.
+
+For full details, see the [LICENSE](LICENSE) file or visit:
+https://www.gnu.org/licenses/agpl-3.0.html

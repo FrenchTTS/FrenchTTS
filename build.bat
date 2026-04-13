@@ -123,5 +123,5 @@ echo   App:         dist\FrenchTTS.exe
 echo   Uninstaller: dist\FrenchTTSUninstaller.exe
 echo   Version:     dist\build_id.txt  (%GIT_SHA%^)
 echo   Installer:   installer\dist\FrenchTTSInstaller.exe  (build ID: %GIT_SHA%^)
-echo Config saved in: %%APPDATA%%\FrenchTTS\config.json
+echo Config saved in: %%APPDATA%%\UseVoice\FrenchTTS\config.json
 pause

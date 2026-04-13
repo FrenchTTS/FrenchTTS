@@ -5,8 +5,8 @@ Uses only Win32 MessageBoxW (via ctypes stdlib) for dialogs — no tkinter,
 no customtkinter — so the bundled exe stays as small as possible.
 
 Removes:
-  - INSTALL_DIR  (%LOCALAPPDATA%\\FrenchTTS)   via a temp .bat (self-exe lock)
-  - APPDATA_DIR  (%APPDATA%\\FrenchTTS)         config, history, STT models
+  - INSTALL_DIR  (%LOCALAPPDATA%\\UseVoice\\FrenchTTS)   via a temp .bat (self-exe lock)
+  - APPDATA_DIR  (%APPDATA%\\UseVoice\\FrenchTTS)         config, history, STT models
   - Desktop shortcut
   - Start Menu folder
 
@@ -23,9 +23,9 @@ import tempfile
 APP_NAME = "FrenchTTS"
 
 INSTALL_DIR = os.path.join(
-    os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), APP_NAME)
+    os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "UseVoice", APP_NAME)
 APPDATA_DIR = os.path.join(
-    os.environ.get("APPDATA", os.path.expanduser("~")), APP_NAME)
+    os.environ.get("APPDATA", os.path.expanduser("~")), "UseVoice", APP_NAME)
 START_MENU_DIR = os.path.join(
     os.environ.get("APPDATA", os.path.expanduser("~")),
     "Microsoft", "Windows", "Start Menu", "Programs", APP_NAME)

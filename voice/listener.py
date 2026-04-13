@@ -58,7 +58,7 @@ def _get_model(model_size: str = STT_MODEL_SIZE) -> WhisperModel:
     """Return the cached WhisperModel, loading it on the first call.
 
     Thread-safe via _model_lock. First call takes ~2–4 s on CPU.
-    download_root points to %APPDATA%/FrenchTTS/stt_models so the model
+    download_root points to %APPDATA%/UseVoice/FrenchTTS/stt_models so the model
     survives PyInstaller's temporary extraction directory.
     """
     global _model

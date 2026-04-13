@@ -32,7 +32,7 @@ import time
 
 APP_NAME    = "FrenchTTS"
 INSTALL_DIR = os.path.join(
-    os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), APP_NAME)
+    os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "UseVoice", APP_NAME)
 START_MENU_DIR = os.path.join(
     os.environ.get("APPDATA", os.path.expanduser("~")),
     "Microsoft", "Windows", "Start Menu", "Programs", APP_NAME)
@@ -112,7 +112,7 @@ def _installed_version() -> str:
     try:
         cfg = os.path.join(
             os.environ.get("APPDATA", os.path.expanduser("~")),
-            APP_NAME, "config.json")
+            "UseVoice", APP_NAME, "config.json")
         with open(cfg, encoding="utf-8") as f:
             data = json.load(f)
         # "version" key is written by _save_settings; fall back to last_seen_version

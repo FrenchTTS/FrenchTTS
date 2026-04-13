@@ -12,7 +12,7 @@ set UNINSTALLER=dist\FrenchTTSUninstaller.exe
 echo  Que voulez-vous tester ?
 echo.
 echo    [1] Premier install  (aucun argument)
-echo        Extrait FrenchTTS.exe + FrenchTTSUninstaller.exe vers %%LOCALAPPDATA%%\FrenchTTS\
+echo        Extrait FrenchTTS.exe + FrenchTTSUninstaller.exe vers %%LOCALAPPDATA%%\UseVoice\FrenchTTS\
 echo        Cree raccourci Bureau + Menu Demarrer et lance l'application.
 echo.
 echo    [2] Mode mise a jour  (--pid 0 --target dist\FrenchTTS.exe)
@@ -22,7 +22,7 @@ echo        Utile pour verifier que la copie et le relaunch fonctionnent.
 echo.
 echo    [3] Desinstalleur  (FrenchTTSUninstaller.exe)
 echo        Lance le desinstalleur directement depuis dist\.
-echo        Supprime %%LOCALAPPDATA%%\FrenchTTS\, %%APPDATA%%\FrenchTTS\,
+echo        Supprime %%LOCALAPPDATA%%\UseVoice\FrenchTTS\, %%APPDATA%%\UseVoice\FrenchTTS\,
 echo        raccourci Bureau et Menu Demarrer.
 echo.
 set /p CHOIX= Choix (1, 2 ou 3) :
