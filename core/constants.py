@@ -45,8 +45,9 @@ VOICES: dict[str, str] = {
     "FR-CA - Antoine": "fr-CA-AntoineNeural"
 }
 
-APP_NAME = "FrenchTTS"
-APP_URL  = "https://tts.usevoice.fr"
+APP_NAME  = "FrenchTTS"
+APP_BRAND = "UseVoice"   # copyright / brand name shown in the UI footer
+APP_URL   = "https://tts.usevoice.fr"
 
 # "prod-4d45892" in a frozen release build, "dev-latest" in all other cases.
 # The BUILD_ID != "dev" guard prevents "prod-dev" appearing if someone runs
@@ -95,6 +96,23 @@ DEFAULT_SETTINGS: dict = {
     "cpu_cores":         0,    # 0 = sentinel "use 75% default"; actual values saved directly
     "process_priority":  "normal",  # "normal" | "below_normal" | "idle"
     "max_memory_mb":     1024,      # soft working-set cap in MB; ≥ 4096 = unlimited
+    # Twitch / OBS mode — disabled by default, zero resource cost when off
+    "twitch_enabled":       False,
+    "twitch_port":          7681,   # local HTTP port for the API + overlay
+    "twitch_channel":       "",     # channel name without #
+    "twitch_oauth_token":   "",     # "oauth:xxxxxxx" — obtained from dev.twitch.tv
+    "twitch_bot_enabled":   False,  # connect directly to Twitch IRC/PubSub
+    "twitch_temp_duration": 30,     # seconds for temporary voice/pitch overrides
+    # Per-feature kill switches — lets users disable only what they don't need
+    "twitch_feat_overlay":  True,   # push text to OBS browser source
+    "twitch_feat_speak":    True,   # channel points can trigger TTS
+    "twitch_feat_voice":    True,   # channel points can change voice
+    "twitch_feat_pitch":    True,   # channel points can change pitch
+    # Overlay appearance — live-synced to the OBS browser source via WebSocket
+    "twitch_overlay_bg":         True,       # show background behind text
+    "twitch_overlay_bg_color":   "#000000",  # background hex colour
+    "twitch_overlay_bg_opacity": 0.65,       # 0.0–1.0
+    "twitch_overlay_text_color": "#ffffff",  # word hex colour
 }
 
 # Display labels for Windows process priority classes (used by SettingsWindow).

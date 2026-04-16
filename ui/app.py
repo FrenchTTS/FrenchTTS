@@ -21,7 +21,7 @@ from PIL import Image
 
 from core.version import BUILD_ID
 from core.constants import (
-    VOICES, APP_NAME, APP_URL, APP_VERSION_DISPLAY,
+    VOICES, APP_NAME, APP_BRAND, APP_URL, APP_VERSION_DISPLAY,
     STATUS_READY, STATUS_LOADING, STATUS_PLAYING, STATUS_ERROR,
     STATUS_RECORDING, STATUS_TRANSCRIBING,
     MAX_HISTORY, DEFAULT_SETTINGS, _BTN_SECONDARY,
@@ -136,6 +136,24 @@ class FrenchTTSApp(ctk.CTk):
             value=PROCESS_PRIORITY_LABELS["normal"])
         self.max_memory_var       = ctk.IntVar(value=1024)
         self._last_seen_version: str = ""   # loaded by _load_settings
+        # Twitch / OBS — disabled by default; module loaded lazily on first use
+        self.twitch_enabled_var          = ctk.BooleanVar(value=False)
+        self.twitch_port_var             = ctk.IntVar(value=7681)
+        self.twitch_channel_var          = ctk.StringVar(value="")
+        self.twitch_oauth_token_var      = ctk.StringVar(value="")
+        self.twitch_bot_enabled_var      = ctk.BooleanVar(value=False)
+        self.twitch_temp_duration_var    = ctk.IntVar(value=30)
+        # Per-feature kill switches (all on by default when Twitch mode is active)
+        self.twitch_feat_overlay_var     = ctk.BooleanVar(value=True)
+        self.twitch_feat_speak_var       = ctk.BooleanVar(value=True)
+        self.twitch_feat_voice_var       = ctk.BooleanVar(value=True)
+        self.twitch_feat_pitch_var       = ctk.BooleanVar(value=True)
+        # Overlay appearance
+        self.twitch_overlay_bg_var          = ctk.BooleanVar(value=True)
+        self.twitch_overlay_bg_color_var    = ctk.StringVar(value="#000000")
+        self.twitch_overlay_bg_opacity_var  = ctk.DoubleVar(value=0.65)
+        self.twitch_overlay_text_color_var  = ctk.StringVar(value="#ffffff")
+        self._twitch_manager = None  # TwitchManager | None
 
         # Boot sequence
         self._build_ui()
@@ -158,6 +176,8 @@ class FrenchTTSApp(ctk.CTk):
         self._populate_devices()
         self._populate_input_devices()
         self._load_settings()        # overwrites defaults with saved prefs
+        if self.twitch_enabled_var.get():
+            self._start_twitch()
         self._load_history()
         self._bind_replay_key()      # must run after _load_settings sets replay_key_var
         self._bind_stop_key()
@@ -291,7 +311,7 @@ class FrenchTTSApp(ctk.CTk):
         ).grid(row=0, column=0)
         link = ctk.CTkLabel(
             copy_frame,
-            text=APP_NAME,
+            text=APP_BRAND,
             text_color=("gray55", "gray40"),
             font=ctk.CTkFont(size=11),
             cursor="hand2")
@@ -522,6 +542,22 @@ class FrenchTTSApp(ctk.CTk):
         self.max_memory_var.set(int(cfg.get("max_memory_mb", 1024)))
         self._apply_memory_limit()
 
+        # Twitch / OBS
+        self.twitch_enabled_var.set(bool(cfg.get("twitch_enabled", False)))
+        self.twitch_port_var.set(int(cfg.get("twitch_port", 7681)))
+        self.twitch_channel_var.set(str(cfg.get("twitch_channel", "")))
+        self.twitch_oauth_token_var.set(str(cfg.get("twitch_oauth_token", "")))
+        self.twitch_bot_enabled_var.set(bool(cfg.get("twitch_bot_enabled", False)))
+        self.twitch_temp_duration_var.set(int(cfg.get("twitch_temp_duration", 30)))
+        self.twitch_feat_overlay_var.set(bool(cfg.get("twitch_feat_overlay", True)))
+        self.twitch_feat_speak_var.set(bool(cfg.get("twitch_feat_speak", True)))
+        self.twitch_feat_voice_var.set(bool(cfg.get("twitch_feat_voice", True)))
+        self.twitch_feat_pitch_var.set(bool(cfg.get("twitch_feat_pitch", True)))
+        self.twitch_overlay_bg_var.set(bool(cfg.get("twitch_overlay_bg", True)))
+        self.twitch_overlay_bg_color_var.set(str(cfg.get("twitch_overlay_bg_color", "#000000")))
+        self.twitch_overlay_bg_opacity_var.set(float(cfg.get("twitch_overlay_bg_opacity", 0.65)))
+        self.twitch_overlay_text_color_var.set(str(cfg.get("twitch_overlay_text_color", "#ffffff")))
+
     def _save_settings(self) -> None:
         """Persist current Tkinter var values to config.json.
 
@@ -563,6 +599,20 @@ class FrenchTTSApp(ctk.CTk):
                 (k for k, v in PROCESS_PRIORITY_LABELS.items()
                  if v == self.process_priority_var.get()), "normal"),
             "max_memory_mb":     self.max_memory_var.get(),
+            "twitch_enabled":       self.twitch_enabled_var.get(),
+            "twitch_port":          self.twitch_port_var.get(),
+            "twitch_channel":       self.twitch_channel_var.get(),
+            "twitch_oauth_token":   self.twitch_oauth_token_var.get(),
+            "twitch_bot_enabled":   self.twitch_bot_enabled_var.get(),
+            "twitch_temp_duration": self.twitch_temp_duration_var.get(),
+            "twitch_feat_overlay":  self.twitch_feat_overlay_var.get(),
+            "twitch_feat_speak":    self.twitch_feat_speak_var.get(),
+            "twitch_feat_voice":    self.twitch_feat_voice_var.get(),
+            "twitch_feat_pitch":    self.twitch_feat_pitch_var.get(),
+            "twitch_overlay_bg":         self.twitch_overlay_bg_var.get(),
+            "twitch_overlay_bg_color":   self.twitch_overlay_bg_color_var.get(),
+            "twitch_overlay_bg_opacity": round(self.twitch_overlay_bg_opacity_var.get(), 2),
+            "twitch_overlay_text_color": self.twitch_overlay_text_color_var.get(),
         }, indent=2, ensure_ascii=False)
         try:
             fd, tmp = tempfile.mkstemp(
@@ -595,6 +645,53 @@ class FrenchTTSApp(ctk.CTk):
         label = self.process_priority_var.get()
         key   = next((k for k, v in PROCESS_PRIORITY_LABELS.items() if v == label), "normal")
         set_process_priority(key)
+
+    # Twitch / OBS module lifecycle
+
+    def _start_twitch(self) -> None:
+        # Lazy import: aiohttp is never loaded when Twitch mode is off
+        from twitch.manager import TwitchManager
+        self._twitch_manager = TwitchManager(self)
+        asyncio.run_coroutine_threadsafe(
+            self._twitch_manager.start(self._get_twitch_settings()),
+            self._loop,
+        )
+
+    def _stop_twitch(self) -> None:
+        if self._twitch_manager:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._twitch_manager.stop(), self._loop
+                ).result(timeout=3)
+            except Exception:
+                pass
+            self._twitch_manager = None
+
+    def _get_twitch_settings(self) -> dict:
+        """Return current Twitch settings as a plain dict for TwitchManager."""
+        return {
+            "twitch_enabled":       self.twitch_enabled_var.get(),
+            "twitch_port":          self.twitch_port_var.get(),
+            "twitch_channel":       self.twitch_channel_var.get().strip().lstrip("#"),
+            "twitch_oauth_token":   self.twitch_oauth_token_var.get().strip(),
+            "twitch_bot_enabled":   self.twitch_bot_enabled_var.get(),
+            "twitch_temp_duration": self.twitch_temp_duration_var.get(),
+            "twitch_feat_overlay":  self.twitch_feat_overlay_var.get(),
+            "twitch_feat_speak":    self.twitch_feat_speak_var.get(),
+            "twitch_feat_voice":    self.twitch_feat_voice_var.get(),
+            "twitch_feat_pitch":    self.twitch_feat_pitch_var.get(),
+            "twitch_overlay_bg":         self.twitch_overlay_bg_var.get(),
+            "twitch_overlay_bg_color":   self.twitch_overlay_bg_color_var.get(),
+            "twitch_overlay_bg_opacity": round(self.twitch_overlay_bg_opacity_var.get(), 2),
+            "twitch_overlay_text_color": self.twitch_overlay_text_color_var.get(),
+        }
+
+    def _on_speak_text(self, text: str) -> None:
+        if not text.strip():
+            return
+        self.text_box.delete("1.0", "end")
+        self.text_box.insert("1.0", text)
+        self._on_speak()
 
     def _apply_memory_limit(self) -> None:
         """Apply the max_memory_var setting via SetProcessWorkingSetSizeEx."""
@@ -1059,6 +1156,14 @@ class FrenchTTSApp(ctk.CTk):
         sd.stop()
         if self._listener:
             self._listener.cancel()
+        if self._twitch_manager:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._twitch_manager.stop(), self._loop
+                ).result(timeout=2)
+            except Exception:
+                pass
+            self._twitch_manager = None
         if self._tray_icon:
             self._tray_icon.stop()
         self._loop.call_soon_threadsafe(self._loop.stop)
@@ -1199,14 +1304,25 @@ class FrenchTTSApp(ctk.CTk):
 
         communicate = edge_tts.Communicate(text, voice, rate=rate, volume=volume, pitch=pitch)
         mp3_buffer  = bytearray()
+        words:      list = []  # word-boundary events for karaoke overlay
         async for chunk in communicate.stream():
             if self._stop_event.is_set():
                 return
             if chunk["type"] == "audio":
                 mp3_buffer.extend(chunk["data"])
+            elif chunk["type"] == "WordBoundary":
+                words.append({
+                    "word":     chunk["text"],
+                    "start_ms": chunk["offset"] // 10_000,
+                    "end_ms":   (chunk["offset"] + chunk["duration"]) // 10_000,
+                })
 
         if self._stop_event.is_set() or not mp3_buffer:
             return
+
+        if self._twitch_manager:
+            await self._twitch_manager.broadcast(
+                {"type": "speak", "text": text, "words": words})
 
         loop = asyncio.get_running_loop()
         data = bytes(mp3_buffer)
@@ -1222,6 +1338,9 @@ class FrenchTTSApp(ctk.CTk):
 
         self._set_status(STATUS_PLAYING)
         await self._play_pcm(pcm, samplerate)
+
+        if self._twitch_manager:
+            await self._twitch_manager.broadcast({"type": "done"})
 
     async def _replay_async(self) -> None:
         """Load last.mp3 from disk and play it without re-generating TTS."""
@@ -1243,6 +1362,10 @@ class FrenchTTSApp(ctk.CTk):
         primary_idx = self._device_map.get(self.device_var.get())
         sd.play(pcm, samplerate=samplerate, device=primary_idx,
                 blocking=False, latency='low')
+
+        # Notify overlay that audio has started — word timers begin from this moment
+        if self._twitch_manager:
+            await self._twitch_manager.broadcast({"type": "start"})
 
         # Optional monitor stream — simultaneous playback on a second device
         monitor_stream = None

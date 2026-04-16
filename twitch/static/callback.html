@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>FrenchTTS — Token OAuth</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #1c1c1c;
+    color: #e0e0e0;
+    font-family: "Segoe UI", "Inter", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 32px 24px;
+    gap: 14px;
+  }
+
+  h1   { color: #9b84ff; font-size: 22px; }
+  p    { color: #909090; font-size: 13px; text-align: center; line-height: 1.6; }
+  p strong { color: #c8c8c8; }
+
+  #token-box {
+    background: #252525;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-family: "Courier New", monospace;
+    font-size: 13px;
+    word-break: break-all;
+    max-width: 620px;
+    width: 100%;
+    color: #7df5a5;
+    user-select: all;
+  }
+
+  #token-box.error { color: #ff7070; }
+
+  button {
+    background: #9b84ff;
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    padding: 10px 28px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover    { background: #7b64df; }
+  button:disabled { background: #444; cursor: default; }
+
+  #status { font-size: 12px; color: #7df5a5; min-height: 18px; }
+</style>
+</head>
+<body>
+
+<h1>Token OAuth récupéré !</h1>
+
+<p>
+  Copiez ce token et collez-le dans :<br>
+  <strong>Paramètres → Twitch / OBS → Bot Twitch intégré → Token OAuth</strong>
+</p>
+
+<div id="token-box">Chargement…</div>
+
+<button id="copy-btn" onclick="copyToken()">Copier le token</button>
+
+<span id="status"></span>
+
+<script>
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  const token  = params.get("access_token");
+  const box    = document.getElementById("token-box");
+  const btn    = document.getElementById("copy-btn");
+  const status = document.getElementById("status");
+
+  if (token) {
+    box.textContent = token;
+  } else {
+    box.textContent = "Aucun token trouvé dans l'URL.";
+    box.classList.add("error");
+    btn.disabled = true;
+  }
+
+  function copyToken() {
+    if (!token) return;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(token).then(onCopied);
+    } else {
+      // Fallback for non-HTTPS context
+      const ta = document.createElement("textarea");
+      ta.value = token;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      onCopied();
+    }
+  }
+
+  function onCopied() {
+    status.textContent = "✓ Copié dans le presse-papier !";
+    setTimeout(() => { status.textContent = ""; }, 3000);
+  }
+</script>
+
+</body>
+</html>

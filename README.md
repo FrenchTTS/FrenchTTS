@@ -7,13 +7,15 @@
   <img src="https://img.shields.io/badge/platform-Windows-informational?style=flat-square" alt="Windows"/>
   <img src="https://img.shields.io/badge/TTS-edge--tts-blueviolet?style=flat-square" alt="edge-tts"/>
   <img src="https://img.shields.io/badge/STT-faster--whisper-orange?style=flat-square" alt="faster-whisper"/>
+  <img src="https://img.shields.io/badge/Twitch-OBS%20overlay-9146ff?style=flat-square" alt="Twitch/OBS"/>
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="AGPL-3.0"/>
 </p>
 
 <p align="center">
   Realistic French TTS for Windows — no API key, no subscription, no compromise on voice quality.<br/>
   Built for VoiceChat via <strong>VB-Cable</strong> or any virtual audio device.<br/>
-  Includes an optional <strong>STT pipeline</strong> (mic → faster-whisper → speech) for hands-free dictation.
+  Includes an optional <strong>STT pipeline</strong> (mic → faster-whisper → speech) for hands-free dictation.<br/>
+  Streaming-ready with a built-in <strong>Twitch / OBS mode</strong> — live overlay, channel-point TTS, and a local REST API.
 </p>
 
 ---
@@ -49,6 +51,12 @@ The app wraps it in a clean dark-mode desktop UI with audio device routing, so y
 - **System tray** — closing the window hides to tray (balloon notification confirms); restores on double-click; quit via tray menu
 - **Acrylic blur** — Windows 10/11 native background blur with adjustable opacity
 - **Resource controls** _(Performances)_ — CPU core throttle (affinity mask), Windows process priority (Normal / Below Normal / Idle), and RAM working-set soft cap; all live, all saved to config
+- **Twitch / OBS mode** _(disabled by default, zero overhead when off)_
+  - **OBS Browser Source overlay** — real-time word-by-word karaoke display, synchronized with audio playback via WebSocket
+  - **Local REST API** — `POST /api/speak`, `/api/voice`, `/api/pitch`, `GET /api/status`; callable from StreamElements, Streamlabs, curl, or any tool
+  - **Integrated Twitch bot** — connects directly via IRC/PubSub; reacts to channel-point redemptions by title (`TTS`, `Voix TTS`, `Pitch TTS`, …)
+  - **Configurable appearance** — overlay background (color, opacity, toggle), text color, all live-synced
+  - **Per-feature toggles** — disable overlay, speak, voice, or pitch independently to save resources
 - **Persistent config** — all settings and history saved in `%APPDATA%\UseVoice\FrenchTTS`; atomic writes prevent corruption on crash
 - **Auto-updater** — checks GitHub Releases at launch, downloads `FrenchTTSInstaller.exe`, self-replaces silently; versioned by commit SHA (`prod-XXXXXXX`)
 - **Installer** — dark-themed CTk installer with progress steps; creates Desktop shortcut, Start Menu folder, and `FrenchTTSUninstaller.exe`
@@ -165,6 +173,56 @@ STT uses [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (Whisper `s
 
 ---
 
+## Twitch / OBS
+
+> **Disabled by default.** Enable in **⚙ Paramètres → Twitch / OBS → Activer**.
+
+When enabled, FrenchTTS starts a local HTTP server (default port **7681**) that provides:
+
+### OBS Browser Source overlay
+
+Add `http://localhost:7681` as a **Browser Source** in OBS (recommended size: 1920 × 200 px).
+
+Each time the TTS speaks, words appear one by one in sync with the audio, then fade out. The overlay uses a WebSocket connection and reconnects automatically.
+
+**Appearance** is configurable in **Paramètres → Twitch / OBS → Apparence de l'overlay**:
+
+| Option | Description |
+|---|---|
+| Fond sous texte | Toggle background on/off |
+| Opacité du fond | Background transparency (0–100 %) |
+| Couleur du fond | Background colour (native colour picker or hex) |
+| Couleur du texte | Word colour |
+
+Changes are pushed live to all connected OBS sources — no refresh needed.
+
+### Local REST API
+
+| Method | Route | Body | Description |
+|---|---|---|---|
+| `POST` | `/api/speak` | `{"text":"…", "voice"?:"…", "pitch"?:N, "duration"?:N}` | Trigger TTS |
+| `POST` | `/api/voice` | `{"voice":"FR - Denise", "duration"?:30}` | Temporary voice change |
+| `POST` | `/api/pitch` | `{"pitch":-20, "duration"?:30}` | Temporary pitch change (Hz, −100→+100) |
+| `GET`  | `/api/status` | — | `{"speaking": bool, "voice":"…", "pitch":N}` |
+
+`voice` and `pitch` overrides restore automatically after `duration` seconds (default: configurable in settings, default 30 s).
+
+### Integrated Twitch bot
+
+Enable in **Paramètres → Twitch / OBS → Bot Twitch intégré**. Requires an OAuth token obtained from `dev.twitch.tv` (a guided setup is available directly in settings).
+
+The bot subscribes to PubSub channel-point redemptions. Reward titles are matched case-insensitively:
+
+| Reward title | Action |
+|---|---|
+| `TTS` / `Lire TTS` / `Dire` / `Parler` | Reads the viewer's input |
+| `Voix TTS` / `Changer Voix` / `Voice TTS` | Changes voice temporarily |
+| `Pitch TTS` / `Changer Pitch` | Changes pitch temporarily (integer Hz) |
+
+Input text is capped at 300 characters per redemption.
+
+---
+
 ## Performances (resource management)
 
 Available in **⚙ Paramètres → Performances**.
@@ -232,9 +290,16 @@ FrenchTTS/
 │   ├── installer.spec     # PyInstaller spec (bundles app + uninstaller)
 │   ├── uninstaller_main.py# Win32 stdlib uninstaller
 │   └── uninstaller.spec   # PyInstaller spec (stdlib-only, small)
+├── twitch/
+│   ├── server.py          # aiohttp HTTP + WebSocket server (overlay, /api/* routes)
+│   ├── manager.py         # TwitchManager lifecycle, feature flags, temp overrides
+│   ├── bot.py             # twitchio IRC bot, PubSub channel-point handler
+│   └── static/
+│       ├── overlay.html   # OBS Browser Source — karaoke word-by-word display
+│       └── callback.html  # OAuth redirect landing page — shows access_token to copy
 ├── ui/
 │   ├── app.py             # FrenchTTSApp — main window + TTS pipeline
-│   ├── settings.py        # SettingsWindow
+│   ├── settings.py        # SettingsWindow (collapsible sections, Twitch modals)
 │   ├── updater.py         # UpdaterSplash, self-replacement logic
 │   ├── utils.py           # window icons, acrylic blur, tray notifications, Win32 resource helpers
 │   └── whats_new.py       # What's New dialog shown after updates
@@ -270,6 +335,10 @@ FrenchTTS/
 | `keyboard`        | System-wide hotkeys (works when app not focused)  |
 | `pystray`         | System tray icon and balloon notifications        |
 | `Pillow`          | Tray image and CTk internal rendering             |
+| `aiohttp`         | Local HTTP + WebSocket server for Twitch/OBS mode |
+| `twitchio`        | Twitch IRC/PubSub bot for channel-point events    |
+
+> `aiohttp` and `twitchio` are only imported when Twitch mode is enabled. They add no startup overhead otherwise.
 
 ---
 

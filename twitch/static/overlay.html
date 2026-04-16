@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FrenchTTS Overlay</title>
+<style>
+  :root {
+    --text-color:  #ffffff;
+    --bg-color:    #000000;
+    --bg-opacity:  0.65;
+    --bg-display:  block;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: transparent;
+    overflow: hidden;
+    font-family: "Segoe UI", "Inter", "Arial", sans-serif;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 0 28px 32px;
+  }
+
+  /* Outer wrapper — fades in/out as a whole unit */
+  #container {
+    position: relative;
+    display: inline-flex;
+    max-width: 100%;
+    padding: 12px 22px;
+    border-radius: 10px;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    pointer-events: none;
+  }
+
+  #container.visible { opacity: 1; }
+  #container.fading  { opacity: 0; transition: opacity 0.7s ease; }
+
+  /* Background layer — sits behind words */
+  #bg {
+    display: var(--bg-display);
+    position: absolute;
+    inset: 0;
+    border-radius: 10px;
+    background-color: var(--bg-color);
+    opacity: var(--bg-opacity);
+    transition: opacity 0.35s ease;
+  }
+
+  /* Words layer — above background */
+  #words {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: baseline;
+    gap: 0 10px;
+    line-height: 1.45;
+  }
+
+  .word {
+    display: inline-block;
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--text-color);
+    opacity: 0.35;
+    text-shadow:
+      0 1px 6px rgba(0,0,0,0.7),
+      0 0   2px rgba(0,0,0,0.9);
+    transition: opacity 0.12s ease, transform 0.12s ease,
+                text-shadow 0.12s ease;
+    transform-origin: center bottom;
+  }
+
+  .word.active {
+    opacity: 1;
+    text-shadow:
+      0 0  14px rgba(120, 180, 255, 0.6),
+      0 1px 6px rgba(0,0,0,0.8),
+      0 0   2px rgba(0,0,0,1);
+    transform: scale(1.08);
+  }
+
+  .word.spoken {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+</style>
+</head>
+<body>
+<div id="container">
+  <div id="bg"></div>
+  <div id="words"></div>
+</div>
+
+<script>
+  const WS_URL   = `ws://${location.host}/ws`;
+  const RETRY_MS = 2000;
+
+  const container = document.getElementById("container");
+  const bgEl      = document.getElementById("bg");
+  const wordsDiv  = document.getElementById("words");
+
+  let wordTimers   = [];
+  let fadeTimer    = null;
+  let pendingWords = [];
+
+  // ── Config ───────────────────────────────────────────────────────────────
+
+  function applyConfig(cfg) {
+    const root = document.documentElement;
+    if (cfg.text_color) root.style.setProperty("--text-color", cfg.text_color);
+    if (cfg.bg_color)   root.style.setProperty("--bg-color",   cfg.bg_color);
+    if (cfg.bg_opacity  !== undefined)
+                        root.style.setProperty("--bg-opacity",  cfg.bg_opacity);
+    if (cfg.bg         !== undefined)
+      root.style.setProperty("--bg-display", cfg.bg ? "block" : "none");
+  }
+
+  // ── WebSocket with auto-reconnect ────────────────────────────────────────
+
+  function connect() {
+    const ws = new WebSocket(WS_URL);
+
+    ws.addEventListener("message", (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return; }
+
+      switch (msg.type) {
+        case "config": applyConfig(msg);             break;
+        case "speak":  onSpeak(msg.text, msg.words || []); break;
+        case "start":  onStart();                    break;
+        case "done":   onDone();                     break;
+      }
+    });
+
+    ws.addEventListener("close", () => setTimeout(connect, RETRY_MS));
+    ws.addEventListener("error", () => ws.close());
+  }
+
+  // ── TTS event handlers ───────────────────────────────────────────────────
+
+  function onSpeak(text, words) {
+    clearPending();
+
+    wordsDiv.innerHTML = "";
+    pendingWords = words;
+
+    if (words.length === 0) {
+      const span = document.createElement("span");
+      span.className = "word";
+      span.textContent = text;
+      wordsDiv.appendChild(span);
+    } else {
+      words.forEach((w) => {
+        const span = document.createElement("span");
+        span.className = "word";
+        span.textContent = w.word;
+        wordsDiv.appendChild(span);
+      });
+    }
+
+    container.classList.remove("fading");
+    container.classList.add("visible");
+  }
+
+  function onStart() {
+    const spans = wordsDiv.querySelectorAll(".word");
+    if (spans.length === 0) return;
+
+    if (pendingWords.length === 0) {
+      spans[0].classList.add("active");
+      return;
+    }
+
+    pendingWords.forEach((w, i) => {
+      const span = spans[i];
+      if (!span) return;
+      const t = setTimeout(() => {
+        if (i > 0 && spans[i - 1]) {
+          spans[i - 1].classList.remove("active");
+          spans[i - 1].classList.add("spoken");
+        }
+        span.classList.add("active");
+      }, w.start_ms);
+      wordTimers.push(t);
+    });
+  }
+
+  function onDone() {
+    clearPending();
+    wordsDiv.querySelectorAll(".word.active").forEach((s) => {
+      s.classList.remove("active");
+      s.classList.add("spoken");
+    });
+    fadeTimer = setTimeout(() => {
+      container.classList.add("fading");
+      setTimeout(() => {
+        container.classList.remove("visible", "fading");
+        wordsDiv.innerHTML = "";
+        pendingWords = [];
+      }, 750);
+    }, 600);
+  }
+
+  function clearPending() {
+    wordTimers.forEach(clearTimeout);
+    wordTimers = [];
+    if (fadeTimer) { clearTimeout(fadeTimer); fadeTimer = null; }
+  }
+
+  connect();
+</script>
+</body>
+</html>
