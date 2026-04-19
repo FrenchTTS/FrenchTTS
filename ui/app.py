@@ -28,7 +28,7 @@ from core.constants import (
     LAST_MP3, CONFIG_FILE, HISTORY_LOG,
     fmt_rate, fmt_pitch, PROCESS_PRIORITY_LABELS,
 )
-from core.audio import _decode_mp3, trim_silence, save_mp3
+from core.audio import _decode_mp3, decode_and_trim, save_mp3
 from core.sounds import (
     play_sound,
     SND_RECOGNIZING, SND_RECOGNIZED, SND_NOT_RECOGNIZED,
@@ -154,6 +154,7 @@ class FrenchTTSApp(ctk.CTk):
         self.twitch_overlay_bg_opacity_var  = ctk.DoubleVar(value=0.65)
         self.twitch_overlay_text_color_var  = ctk.StringVar(value="#ffffff")
         self._twitch_manager = None  # TwitchManager | None
+        self._pending_text:  str | None = None  # queued when Enter interrupts ongoing TTS
 
         # Boot sequence
         self._build_ui()
@@ -687,7 +688,7 @@ class FrenchTTSApp(ctk.CTk):
         }
 
     def _on_speak_text(self, text: str) -> None:
-        if not text.strip():
+        if not text.strip() or self._tts_busy.is_set():
             return
         self.text_box.delete("1.0", "end")
         self.text_box.insert("1.0", text)
@@ -955,13 +956,26 @@ class FrenchTTSApp(ctk.CTk):
     def _on_speak(self) -> None:
         """Validate input then launch the TTS thread as early as possible.
 
+        If TTS is already playing, the current speech is interrupted and the
+        new text is queued.  The worker's finally block picks it up via
+        _check_pending_speak, so there is no gap in the UI state.
+
         Order is intentional: the network request to edge-tts starts first
         so it runs concurrently with the UI updates and the disk write in
         _push_history, shaving off any sequential overhead before audio begins.
         """
         text = self.text_box.get("1.0", "end-1c").strip()
-        if not text or self._tts_busy.is_set():
+        if not text:
             return
+        if self._tts_busy.is_set():
+            # Interrupt current speech; worker's finally will start the new one.
+            self._pending_text = text
+            self.text_box.delete("1.0", "end")
+            self._stop_event.set()
+            self._stt_triggered_tts = False
+            sd.stop()
+            return
+        self._pending_text = None
         self._stop_event.clear()
         self._run_worker(lambda: self._tts_async(text))  # network starts immediately
         self.text_box.delete("1.0", "end")
@@ -976,13 +990,32 @@ class FrenchTTSApp(ctk.CTk):
         Setting _stop_event causes the async polling loop inside _play_pcm
         to call sd.stop() on its next iteration. Calling sd.stop() here too
         ensures the audio stops even if the thread hasn't reached that check yet.
-        _stt_triggered_tts is cleared so a manual stop does not accidentally
-        trigger auto-restart on a subsequent normal TTS.
+        _pending_text is cleared so a queued interrupt does not fire after an
+        explicit stop.  _stt_triggered_tts is cleared so a manual stop does not
+        accidentally trigger auto-restart on a subsequent normal TTS.
         """
+        self._pending_text = None
         self._stop_event.set()
         self._stt_triggered_tts = False
         sd.stop()
         self._restore_ui()
+
+    def _check_pending_speak(self) -> None:
+        """Start the text queued by an Enter-while-playing interrupt.
+
+        Reads _pending_text at call time so a Stop (F3) between the worker's
+        finally block and this callback can cancel the pending speak cleanly.
+        """
+        text = self._pending_text
+        if not text:
+            return
+        self._pending_text = None
+        self._stop_event.clear()
+        self._run_worker(lambda: self._tts_async(text))
+        self.speak_btn.configure(state="disabled")
+        self.replay_btn.configure(state="disabled")
+        self._set_status(STATUS_LOADING)
+        self._push_history(text)
 
     def _on_replay(self) -> None:
         """Replay the last generated audio without re-calling edge-tts."""
@@ -1141,6 +1174,10 @@ class FrenchTTSApp(ctk.CTk):
         self.after(0, self.destroy) defers destruction so this method can
         safely be called from a non-Tkinter thread (tray or keyboard callback).
         """
+        # Cancel any queued interrupt-speak so _check_pending_speak (which may
+        # already be scheduled via after(0)) finds nothing to do and does not
+        # call run_coroutine_threadsafe on a stopping/stopped event loop.
+        self._pending_text = None
         for hk in (self._hk_replay, self._hk_stop, self._hk_stt):
             if hk is not None:
                 try:
@@ -1219,6 +1256,7 @@ class FrenchTTSApp(ctk.CTk):
         Consecutive duplicate suppression avoids cluttering the history when
         the user sends the same line multiple times in a row. Non-consecutive
         duplicates are kept so the full conversation is preserved.
+        The disk write runs on a daemon thread so the main thread stays responsive.
         """
         if not self._history or self._history[-1] != text:
             self._history.append(text)
@@ -1281,10 +1319,14 @@ class FrenchTTSApp(ctk.CTk):
                         f"{STATUS_ERROR}: {msg}"))
             finally:
                 self._tts_busy.clear()
-                if not self._stop_event.is_set():
+                if self._pending_text:
+                    # Enter was pressed during playback — start the queued text.
+                    self._safe_after(self._check_pending_speak)
+                elif not self._stop_event.is_set():
                     # Window may be in shutdown; _safe_after swallows TclError.
                     self._safe_after(self._restore_ui)
                     self._safe_after(self._maybe_auto_restart_stt)
+                # else: explicit stop — _on_stop already restored the UI
 
         asyncio.run_coroutine_threadsafe(_wrapper(), self._loop)
 
@@ -1327,12 +1369,10 @@ class FrenchTTSApp(ctk.CTk):
         loop = asyncio.get_running_loop()
         data = bytes(mp3_buffer)
 
-        # Decode PCM off the event loop thread (CPU-bound).
-        # Save to disk concurrently so replay is ready as soon as audio starts.
-        pcm, samplerate = await loop.run_in_executor(None, _decode_mp3, data)
+        # Decode + trim PCM in one executor call; save runs concurrently.
         loop.run_in_executor(None, save_mp3, LAST_MP3, data)
+        pcm, samplerate = await loop.run_in_executor(None, decode_and_trim, data)
 
-        pcm = trim_silence(pcm)
         if not pcm.size:
             return
 
@@ -1344,9 +1384,14 @@ class FrenchTTSApp(ctk.CTk):
 
     async def _replay_async(self) -> None:
         """Load last.mp3 from disk and play it without re-generating TTS."""
-        with open(LAST_MP3, "rb") as f:
-            data = f.read()
-        pcm, samplerate = _decode_mp3(data)
+        loop = asyncio.get_running_loop()
+
+        def _load_and_decode() -> tuple:
+            with open(LAST_MP3, "rb") as f:
+                data = f.read()
+            return _decode_mp3(data)
+
+        pcm, samplerate = await loop.run_in_executor(None, _load_and_decode)
         await self._play_pcm(pcm, samplerate)
 
     async def _play_pcm(self, pcm: np.ndarray, samplerate: int) -> None:

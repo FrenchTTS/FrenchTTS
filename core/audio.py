@@ -38,6 +38,12 @@ def trim_silence(pcm: np.ndarray, threshold: int = 200) -> np.ndarray:
     return pcm[above[0]:]
 
 
+def decode_and_trim(data: bytes) -> tuple[np.ndarray, int]:
+    """Decode MP3 and strip leading silence in a single executor call."""
+    pcm, sr = _decode_mp3(data)
+    return trim_silence(pcm), sr
+
+
 def save_mp3(path: str, data: bytes) -> None:
     """Write raw MP3 bytes to *path*, silently ignoring OS errors."""
     try:
